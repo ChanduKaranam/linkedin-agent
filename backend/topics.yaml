@@ -1,0 +1,37 @@
+topic: AI & tech
+timezone: Asia/Kolkata
+schedule_hour: 6
+schedule_minute: 35
+queries:
+- AI model releases last 24 hours
+- artificial intelligence news today
+- tech company announcements today
+- AI research papers released today
+- machine learning tools launched this week
+limits:
+  max_sources_per_run: 30
+  max_per_query: 10
+  scrape_timeout_seconds: 25
+  scrape_concurrency: 4
+  per_domain_rps: 0.5
+  summarize_max_chars_per_source: 6000
+  cluster_snippet_chars: 400
+models:
+  cluster: mistral/mistral-large-latest
+  summarize: mistral/mistral-large-latest
+dedup:
+  cross_day_window: 3
+blocked_domains:
+- pinterest.com
+- pinterest.*
+- youtube.com/shorts
+- '*.onion'
+- facebook.com
+- instagram.com
+- tiktok.com
+- lastweekin.ai
+- pricepertoken.com
+- llm-stats.com
+- substack.com
+- medium.com
+- newsletter.*.com

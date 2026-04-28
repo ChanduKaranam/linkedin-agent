@@ -1,0 +1,20 @@
+[
+  {
+    "url": "https://example.com/ai-news-1",
+    "title": "OpenAI Releases GPT-5 with Improved Reasoning",
+    "snippet": "OpenAI announced GPT-5 today, claiming major improvements in multi-step reasoning and code generation tasks.",
+    "source_query": "latest AI model releases this week"
+  },
+  {
+    "url": "https://example.com/ai-news-2",
+    "title": "Google DeepMind Unveils New AlphaFold Version",
+    "snippet": "DeepMind's latest AlphaFold update can now predict RNA structures with near-experimental accuracy.",
+    "source_query": "AI research breakthroughs recent"
+  },
+  {
+    "url": "https://example.com/tech-news-1",
+    "title": "Meta Launches Open-Source AI Coding Assistant",
+    "snippet": "Meta released Code Llama 3, a 70B parameter model specialized for code completion and debugging.",
+    "source_query": "new AI tools launched"
+  }
+]
