@@ -137,3 +137,37 @@ class InsightOut(BaseModel):
     summary: str
     tags: list[str]
     created_at: str
+
+
+class GeneratedPostOut(BaseModel):
+    id: int
+    kind: str
+    run_id: str
+    run_date: str
+    slug: str
+    content_markdown: str
+    tags: list[str]
+    status: str
+    linkedin_post_urn: str | None
+    created_at: str
+    updated_at: str
+
+
+class GeneratedPostPatchIn(BaseModel):
+    content_markdown: str = Field(min_length=1, max_length=40000)
+    tags: list[str] = Field(default_factory=list)
+
+
+class GeneratePostIn(BaseModel):
+    user_instructions: str = Field(default="", max_length=2000)
+
+
+class LinkedInStatusOut(BaseModel):
+    connected: bool
+    expires_at: str | None
+    member_urn: str | None
+
+
+class PublishResponseOut(BaseModel):
+    post_urn: str
+    status: str

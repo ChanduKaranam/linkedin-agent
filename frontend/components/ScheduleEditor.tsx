@@ -115,7 +115,7 @@ export default function ScheduleEditor({ schedule, onSaved }: ScheduleEditorProp
           </div>
 
           <p className="text-[10px] text-slate-400 mb-3 leading-relaxed">
-            Saves to topics.yaml. Requires DEBUG=true. Restart to apply to Windows Task Scheduler.
+            Saves to topics.yaml. Restart to apply to Windows Task Scheduler.
           </p>
 
           {error && <p className="text-[11px] text-red-500 mb-2">{error}</p>}

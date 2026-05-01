@@ -4,11 +4,14 @@ import re
 import time
 from collections import defaultdict, deque
 from datetime import date
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..agent.chat_agent import answer as chat_answer
 from ..config import get_settings, get_topic_config
+from ..db import get_session
 from ..logging_setup import get_logger
 from ..storage import (
     append_chat_message,
@@ -18,6 +21,8 @@ from ..storage import (
     list_chat_messages,
     list_insights,
 )
+from ..style.collector import record_sample
+from ..style.profile import refresh_profile_if_stale
 from .schemas import (
     ChatMessageOut,
     ChatPostIn,
@@ -33,8 +38,9 @@ log = get_logger(__name__)
 _RATE_LIMIT = 30
 _RATE_WINDOW = 3600
 _ip_timestamps: dict[str, deque[float]] = defaultdict(deque)
-
 _INJECTION_RE = re.compile(r"<SOURCES>|</SOURCES>|<INST>|<SYS>|\[INST\]|\[SYS\]", re.IGNORECASE)
+
+SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 
 def _client_ip(request: Request) -> str:
@@ -79,37 +85,34 @@ def _row_to_msg_out(row: dict) -> ChatMessageOut:
 # ── Daily trend chat ────────────────────────────────────────────────────────────
 
 @router.get("/chat/{date}/{slug}/messages", response_model=list[ChatMessageOut])
-async def get_daily_chat(date: str, slug: str) -> list[ChatMessageOut]:
-    settings = get_settings()
+async def get_daily_chat(date: str, slug: str, session: SessionDep) -> list[ChatMessageOut]:
     try:
-        run_date = date_parse(date)
+        run_date = _date_parse(date)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
-    rows = list_chat_messages(settings.db_path, run_date=run_date, slug=slug)
+    rows = await list_chat_messages(session, run_date=run_date, slug=slug)
     return [_row_to_msg_out(r) for r in rows]
 
 
 @router.post("/chat/{date}/{slug}/messages", response_model=ChatPostOut)
-async def post_daily_chat(date: str, slug: str, body: ChatPostIn, request: Request) -> ChatPostOut:
+async def post_daily_chat(
+    date: str, slug: str, body: ChatPostIn, request: Request, session: SessionDep, bg: BackgroundTasks
+) -> ChatPostOut:
     _rate_limit_check(_client_ip(request))
-    settings = get_settings()
     cfg = get_topic_config()
+    settings = get_settings()
 
     try:
-        run_date = date_parse(date)
+        run_date = _date_parse(date)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
 
-    trend = get_trend_by_slug(settings.db_path, run_date, slug)
+    trend = await get_trend_by_slug(session, run_date, slug)
     if trend is None:
         raise HTTPException(status_code=404, detail="Trend not found.")
 
     user_content = _sanitize_message(body.content)
-
-    history = list_chat_messages(
-        settings.db_path, run_date=run_date, slug=slug,
-        limit=cfg.chat.max_history_turns * 2,
-    )
+    history = await list_chat_messages(session, run_date=run_date, slug=slug, limit=cfg.chat.max_history_turns * 2)
 
     result = await chat_answer(
         trend=trend,
@@ -118,53 +121,47 @@ async def post_daily_chat(date: str, slug: str, body: ChatPostIn, request: Reque
         model_str=cfg.models.summarize,
         cache_dir=settings.cache_dir,
         max_tool_calls=cfg.chat.max_tool_calls,
-        source_chars_per_doc=cfg.chat.source_chars_per_doc,
+        session=session,
     )
 
-    user_id = append_chat_message(
-        settings.db_path, trend.run_id, run_date, slug, "user", user_content,
-    )
-    asst_id = append_chat_message(
-        settings.db_path, trend.run_id, run_date, slug, "assistant",
+    user_id = await append_chat_message(session, trend.run_id, run_date, slug, "user", user_content)
+    asst_id = await append_chat_message(
+        session, trend.run_id, run_date, slug, "assistant",
         result["reply"], result["citations"], result["used_web"],
     )
 
-    user_rows = list_chat_messages(settings.db_path, run_date=run_date, slug=slug, limit=200)
-    user_row = next(r for r in user_rows if r["id"] == user_id)
-    asst_row = next(r for r in user_rows if r["id"] == asst_id)
+    await record_sample(session, "chat", user_content, source_ref=user_id)
+    bg.add_task(_bg_refresh_profile_task)
 
-    return ChatPostOut(
-        user_message=_row_to_msg_out(user_row),
-        assistant_message=_row_to_msg_out(asst_row),
-    )
+    all_rows = await list_chat_messages(session, run_date=run_date, slug=slug, limit=200)
+    user_row = next(r for r in all_rows if r["id"] == user_id)
+    asst_row = next(r for r in all_rows if r["id"] == asst_id)
+    return ChatPostOut(user_message=_row_to_msg_out(user_row), assistant_message=_row_to_msg_out(asst_row))
 
 
 # ── Adhoc/search run chat ───────────────────────────────────────────────────────
 
 @router.get("/chat/runs/{run_id}/{slug}/messages", response_model=list[ChatMessageOut])
-async def get_run_chat(run_id: str, slug: str) -> list[ChatMessageOut]:
-    settings = get_settings()
-    rows = list_chat_messages(settings.db_path, run_id=run_id, slug=slug)
+async def get_run_chat(run_id: str, slug: str, session: SessionDep) -> list[ChatMessageOut]:
+    rows = await list_chat_messages(session, run_id=run_id, slug=slug)
     return [_row_to_msg_out(r) for r in rows]
 
 
 @router.post("/chat/runs/{run_id}/{slug}/messages", response_model=ChatPostOut)
-async def post_run_chat(run_id: str, slug: str, body: ChatPostIn, request: Request) -> ChatPostOut:
+async def post_run_chat(
+    run_id: str, slug: str, body: ChatPostIn, request: Request, session: SessionDep, bg: BackgroundTasks
+) -> ChatPostOut:
     _rate_limit_check(_client_ip(request))
-    settings = get_settings()
     cfg = get_topic_config()
+    settings = get_settings()
 
-    trends = get_trends_for_run(settings.db_path, run_id)
+    trends = await get_trends_for_run(session, run_id)
     trend = next((t for t in trends if t.slug == slug), None)
     if trend is None:
         raise HTTPException(status_code=404, detail="Trend not found for this run.")
 
     user_content = _sanitize_message(body.content)
-
-    history = list_chat_messages(
-        settings.db_path, run_id=run_id, slug=slug,
-        limit=cfg.chat.max_history_turns * 2,
-    )
+    history = await list_chat_messages(session, run_id=run_id, slug=slug, limit=cfg.chat.max_history_turns * 2)
 
     result = await chat_answer(
         trend=trend,
@@ -173,84 +170,79 @@ async def post_run_chat(run_id: str, slug: str, body: ChatPostIn, request: Reque
         model_str=cfg.models.summarize,
         cache_dir=settings.cache_dir,
         max_tool_calls=cfg.chat.max_tool_calls,
-        source_chars_per_doc=cfg.chat.source_chars_per_doc,
+        session=session,
     )
 
-    user_id = append_chat_message(
-        settings.db_path, run_id, trend.run_date, slug, "user", user_content,
-    )
-    asst_id = append_chat_message(
-        settings.db_path, run_id, trend.run_date, slug, "assistant",
+    user_id = await append_chat_message(session, run_id, trend.run_date, slug, "user", user_content)
+    asst_id = await append_chat_message(
+        session, run_id, trend.run_date, slug, "assistant",
         result["reply"], result["citations"], result["used_web"],
     )
 
-    all_rows = list_chat_messages(settings.db_path, run_id=run_id, slug=slug, limit=200)
+    await record_sample(session, "chat", user_content, source_ref=user_id)
+    bg.add_task(_bg_refresh_profile_task)
+
+    all_rows = await list_chat_messages(session, run_id=run_id, slug=slug, limit=200)
     user_row = next(r for r in all_rows if r["id"] == user_id)
     asst_row = next(r for r in all_rows if r["id"] == asst_id)
-
-    return ChatPostOut(
-        user_message=_row_to_msg_out(user_row),
-        assistant_message=_row_to_msg_out(asst_row),
-    )
+    return ChatPostOut(user_message=_row_to_msg_out(user_row), assistant_message=_row_to_msg_out(asst_row))
 
 
 # ── Insights ────────────────────────────────────────────────────────────────────
 
 @router.get("/insights/{date}/{slug}", response_model=list[InsightOut])
-async def get_daily_insights(date: str, slug: str) -> list[InsightOut]:
-    settings = get_settings()
+async def get_daily_insights(date: str, slug: str, session: SessionDep) -> list[InsightOut]:
     try:
-        run_date = date_parse(date)
+        run_date = _date_parse(date)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
-    rows = list_insights(settings.db_path, run_date=run_date, slug=slug)
+    rows = await list_insights(session, run_date=run_date, slug=slug)
     return [InsightOut(**r) for r in rows]
 
 
 @router.post("/insights/{date}/{slug}", response_model=InsightOut, status_code=201)
-async def post_daily_insight(date: str, slug: str, body: InsightIn) -> InsightOut:
-    settings = get_settings()
+async def post_daily_insight(date: str, slug: str, body: InsightIn, session: SessionDep) -> InsightOut:
     try:
-        run_date = date_parse(date)
+        run_date = _date_parse(date)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
-
-    trend = get_trend_by_slug(settings.db_path, run_date, slug)
+    trend = await get_trend_by_slug(session, run_date, slug)
     if trend is None:
         raise HTTPException(status_code=404, detail="Trend not found.")
-
-    insight_id = create_insight(
-        settings.db_path, trend.run_id, run_date, slug,
-        body.user_perspective, body.summary, body.tags,
-    )
-    rows = list_insights(settings.db_path, run_date=run_date, slug=slug)
+    insight_id = await create_insight(session, trend.run_id, run_date, slug, body.user_perspective, body.summary, body.tags)
+    await record_sample(session, "insight", body.user_perspective, source_ref=insight_id)
+    rows = await list_insights(session, run_date=run_date, slug=slug)
     row = next(r for r in rows if r["id"] == insight_id)
     return InsightOut(**row)
 
 
 @router.get("/insights/runs/{run_id}/{slug}", response_model=list[InsightOut])
-async def get_run_insights(run_id: str, slug: str) -> list[InsightOut]:
-    settings = get_settings()
-    rows = list_insights(settings.db_path, run_id=run_id, slug=slug)
+async def get_run_insights(run_id: str, slug: str, session: SessionDep) -> list[InsightOut]:
+    rows = await list_insights(session, run_id=run_id, slug=slug)
     return [InsightOut(**r) for r in rows]
 
 
 @router.post("/insights/runs/{run_id}/{slug}", response_model=InsightOut, status_code=201)
-async def post_run_insight(run_id: str, slug: str, body: InsightIn) -> InsightOut:
-    settings = get_settings()
-    trends = get_trends_for_run(settings.db_path, run_id)
+async def post_run_insight(run_id: str, slug: str, body: InsightIn, session: SessionDep) -> InsightOut:
+    trends = await get_trends_for_run(session, run_id)
     trend = next((t for t in trends if t.slug == slug), None)
     if trend is None:
         raise HTTPException(status_code=404, detail="Trend not found for this run.")
-
-    insight_id = create_insight(
-        settings.db_path, run_id, trend.run_date, slug,
-        body.user_perspective, body.summary, body.tags,
-    )
-    rows = list_insights(settings.db_path, run_id=run_id, slug=slug)
+    insight_id = await create_insight(session, run_id, trend.run_date, slug, body.user_perspective, body.summary, body.tags)
+    await record_sample(session, "insight", body.user_perspective, source_ref=insight_id)
+    rows = await list_insights(session, run_id=run_id, slug=slug)
     row = next(r for r in rows if r["id"] == insight_id)
     return InsightOut(**row)
 
 
-def date_parse(s: str) -> date:
+def _date_parse(s: str) -> date:
     return date.fromisoformat(s)
+
+
+async def _bg_refresh_profile_task() -> None:
+    from ..db import _get_factory
+    try:
+        async with _get_factory()() as session:
+            await refresh_profile_if_stale(session)
+    except Exception as exc:
+        log.warning("bg_style_profile_refresh_failed", error=str(exc))

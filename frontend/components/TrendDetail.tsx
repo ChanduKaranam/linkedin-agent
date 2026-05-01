@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import type { TrendDetail } from "@/types";
 import ChatPanel from "@/components/ChatPanel";
+import PostStudio from "@/components/PostStudio";
 
 interface TrendDetailProps {
   trend: TrendDetail;
@@ -91,6 +92,13 @@ export default function TrendDetail({ trend, chatApiBase, insightsApiBase }: Tre
         </div>
         {chatApiBase && insightsApiBase && (
           <ChatPanel chatApiBase={chatApiBase} insightsApiBase={insightsApiBase} />
+        )}
+        {chatApiBase && (
+          <PostStudio
+            postsApiBase={`/api/posts/${trend.run_date}/${trend.slug}`}
+            linkedinApiBase={`/api/posts/${trend.run_date}/${trend.slug}/linkedin`}
+            blogApiBase={`/api/posts/${trend.run_date}/${trend.slug}/blog`}
+          />
         )}
       </div>
     </article>

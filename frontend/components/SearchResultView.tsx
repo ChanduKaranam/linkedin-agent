@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import type { TrendDetail } from "@/types";
 import ChatPanel from "@/components/ChatPanel";
+import PostStudio from "@/components/PostStudio";
 
 interface SearchResultViewProps {
   trend: TrendDetail;
@@ -11,9 +12,12 @@ interface SearchResultViewProps {
   onBack: () => void;
   chatApiBase?: string;
   insightsApiBase?: string;
+  postsApiBase?: string;
+  linkedinApiBase?: string;
+  blogApiBase?: string;
 }
 
-export default function SearchResultView({ trend, topic, onBack, chatApiBase, insightsApiBase }: SearchResultViewProps) {
+export default function SearchResultView({ trend, topic, onBack, chatApiBase, insightsApiBase, postsApiBase, linkedinApiBase, blogApiBase }: SearchResultViewProps) {
   const sourceCount = trend.sources.length;
 
   return (
@@ -93,9 +97,16 @@ export default function SearchResultView({ trend, topic, onBack, chatApiBase, in
           </div>
         </div>
         {chatApiBase && insightsApiBase && (
-          <div className="px-8 pb-6">
+          <div className="px-8 pb-2">
             <ChatPanel chatApiBase={chatApiBase} insightsApiBase={insightsApiBase} />
           </div>
+        )}
+        {postsApiBase && linkedinApiBase && blogApiBase && (
+          <PostStudio
+            postsApiBase={postsApiBase}
+            linkedinApiBase={linkedinApiBase}
+            blogApiBase={blogApiBase}
+          />
         )}
       </div>
     </div>

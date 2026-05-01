@@ -92,3 +92,23 @@ export interface Insight {
   tags: string[];
   created_at: string;
 }
+
+export interface GeneratedPost {
+  id: number;
+  kind: "linkedin" | "blog";
+  run_id: string;
+  run_date: string;
+  slug: string;
+  content_markdown: string;
+  tags: string[];
+  status: "draft" | "edited" | "published";
+  linkedin_post_urn: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LinkedInStatus {
+  connected: boolean;
+  expires_at: string | null;
+  member_urn: string | null;
+}

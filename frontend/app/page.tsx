@@ -302,6 +302,9 @@ export default function Home() {
                               onBack={handleSearchClear}
                               chatApiBase={`/api/chat/runs/${searchRunId}/${searchBrief.slug}`}
                               insightsApiBase={`/api/insights/runs/${searchRunId}/${searchBrief.slug}`}
+                              postsApiBase={`/api/posts/runs/${searchRunId}/${searchBrief.slug}`}
+                              linkedinApiBase={`/api/posts/runs/${searchRunId}/${searchBrief.slug}/linkedin`}
+                              blogApiBase={`/api/posts/runs/${searchRunId}/${searchBrief.slug}/blog`}
                             />
                           </div>
                         )}

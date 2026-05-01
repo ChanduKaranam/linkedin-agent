@@ -1,26 +1,26 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..config import get_settings
-from ..logging_setup import get_logger
 from ..config import get_schedule_info
+from ..db import get_session
+from ..logging_setup import get_logger
 from ..storage import get_available_dates, get_latest_completed_run, get_trend_by_slug, get_trends_for_date
 from .schemas import HealthOut, ScheduleOut, TrendDetailOut, TrendListItem
 
 router = APIRouter()
 log = get_logger(__name__)
 
-
-def _db():
-    return get_settings().db_path
+SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 
 @router.get("/health", response_model=HealthOut)
-async def health() -> HealthOut:
-    run = get_latest_completed_run(_db())
+async def health(session: SessionDep) -> HealthOut:
+    run = await get_latest_completed_run(session)
     return HealthOut(
         status="ok",
         latest_run_date=run.run_date if run else None,
@@ -30,50 +30,39 @@ async def health() -> HealthOut:
 
 @router.get("/schedule", response_model=ScheduleOut)
 async def get_schedule() -> ScheduleOut:
-    info = get_schedule_info()
-    return ScheduleOut(**info)
+    return ScheduleOut(**get_schedule_info())
 
 
 @router.get("/trends/dates", response_model=list[str])
-async def available_dates() -> list[str]:
-    dates = get_available_dates(_db())
+async def available_dates(session: SessionDep) -> list[str]:
+    dates = await get_available_dates(session)
     return [d.isoformat() for d in dates]
 
 
 @router.get("/trends/today", response_model=list[TrendListItem])
-async def trends_today() -> list[TrendListItem]:
-    run = get_latest_completed_run(_db())
+async def trends_today(session: SessionDep) -> list[TrendListItem]:
+    run = await get_latest_completed_run(session)
     if not run:
         return []
-    trends = get_trends_for_date(_db(), run.run_date)
+    trends = await get_trends_for_date(session, run.run_date)
     return [
-        TrendListItem(
-            slug=t.slug,
-            headline=t.headline,
-            one_liner=t.one_liner,
-            source_count=len(t.sources),
-        )
+        TrendListItem(slug=t.slug, headline=t.headline, one_liner=t.one_liner, source_count=len(t.sources))
         for t in trends
     ]
 
 
 @router.get("/trends/by-date/{run_date}", response_model=list[TrendListItem])
-async def trends_by_date(run_date: date = Path(...)) -> list[TrendListItem]:
-    trends = get_trends_for_date(_db(), run_date)
+async def trends_by_date(session: SessionDep, run_date: date = Path(...)) -> list[TrendListItem]:
+    trends = await get_trends_for_date(session, run_date)
     return [
-        TrendListItem(
-            slug=t.slug,
-            headline=t.headline,
-            one_liner=t.one_liner,
-            source_count=len(t.sources),
-        )
+        TrendListItem(slug=t.slug, headline=t.headline, one_liner=t.one_liner, source_count=len(t.sources))
         for t in trends
     ]
 
 
 @router.get("/trends/{run_date}/{slug}", response_model=TrendDetailOut)
-async def trend_detail(run_date: date = Path(...), slug: str = Path(...)) -> TrendDetailOut:
-    trend = get_trend_by_slug(_db(), run_date, slug)
+async def trend_detail(session: SessionDep, run_date: date = Path(...), slug: str = Path(...)) -> TrendDetailOut:
+    trend = await get_trend_by_slug(session, run_date, slug)
     if not trend:
         raise HTTPException(status_code=404, detail="Trend not found")
     return TrendDetailOut(

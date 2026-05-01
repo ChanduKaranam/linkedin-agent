@@ -1,38 +1,23 @@
-# Python
-.venv/
+.claude/*
+# Python cache
 __pycache__/
-*.py[cod]
-*.egg-info/
-dist/
-.eggs/
-*.egg
-.pytest_cache/
-.ruff_cache/
-.mypy_cache/
+*.pyc
+*.pyo
+*.pyd
 
-# Env / secrets
-.env
-backend/.env
-/.claude
-.claude/.
+# Virtual environments
+venv/
+.env/
+.envrc/
 
-# Data & logs (generated at runtime)
-backend/data/
-backend/logs/
+# Claude / AI tool folders
+.claude/
 
-# Scrape cache
-backend/data/cache/
-
-# Node / Next.js
-frontend/node_modules/
-frontend/.next/
-frontend/out/
-frontend/.env.local
-
-# OS
-.DS_Store
-Thumbs.db
-
-# IDE
+# VS Code / IDE
 .vscode/
 .idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+data/cache/*
