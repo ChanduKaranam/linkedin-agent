@@ -6953,3 +6953,58 @@ sqlalchemy.exc.DBAPIError: (sqlalchemy.dialects.postgresql.asyncpg.Error) <class
 [SQL: UPDATE runs SET state=$1::VARCHAR, finished_at=$2::TIMESTAMP WITH TIME ZONE, trend_count=$3::INTEGER, warnings=$4::INTEGER, last_error=$5::VARCHAR WHERE runs.run_id = $6::VARCHAR]
 [parameters: ('failed', datetime.datetime(2026, 5, 4, 10, 37, 19, 551741, tzinfo=datetime.timezone.utc), 0, 0, 'INTERNAL:(sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class \'asyncpg.exceptions.UndefinedTableError\'>: relation "chunks" does not exi ... (211 characters truncated) ... r-a-highly-efficient-platform-designed-to-scale-on-edgedevices-made-for-the-people/\')]\n(Background on this error at: https://sqlalche.me/e/20/f405)', '47846553-981e-451a-a0d9-7faf497016d8')]
 (Background on this error at: https://sqlalche.me/e/20/dbapi)
+{"hour": 4, "minute": 0, "tz": "Asia/Kolkata", "event": "inprocess_scheduler_started", "level": "info", "logger": "src.backend.api.main", "timestamp": "2026-05-06T07:15:37.205189Z"}
+{"hour": 4, "minute": 0, "tz": "Asia/Kolkata", "event": "inprocess_scheduler_started", "level": "info", "logger": "src.backend.api.main", "timestamp": "2026-05-06T07:23:03.147343Z"}
+{"kind": "linkedin", "limit": 200, "count": 0, "event": "posts_library_listed", "level": "info", "logger": "src.backend.api.routes_posts", "timestamp": "2026-05-06T07:27:41.016765Z"}
+{"kind": "linkedin", "limit": 200, "count": 0, "event": "posts_library_listed", "level": "info", "logger": "src.backend.api.routes_posts", "timestamp": "2026-05-06T07:27:41.044836Z"}
+{"kind": "linkedin", "limit": 200, "count": 0, "event": "posts_library_listed", "level": "info", "logger": "src.backend.api.routes_posts", "timestamp": "2026-05-06T07:27:41.208347Z"}
+{"kind": "linkedin", "limit": 200, "count": 0, "event": "posts_library_listed", "level": "info", "logger": "src.backend.api.routes_posts", "timestamp": "2026-05-06T07:27:41.230502Z"}
+
+LiteLLM completion() model= mistral-large-latest; provider = mistral
+
+LiteLLM completion() model= mistral-large-latest; provider = mistral
+
+LiteLLM completion() model= mistral-large-latest; provider = mistral
+{"member_urn": "urn:li:person:_CEqnlxV7g", "event": "linkedin_oauth_connected", "level": "info", "logger": "src.backend.integrations.linkedin", "timestamp": "2026-05-06T08:04:17.751962Z"}
+{"error": "Client error '400 Bad Request' for url 'https://www.linkedin.com/oauth/v2/accessToken'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400", "event": "linkedin_oauth_callback_failed", "level": "error", "logger": "src.backend.api.routes_posts", "timestamp": "2026-05-06T08:04:24.247876Z"}
+
+LiteLLM completion() model= mistral-large-latest; provider = mistral
+{"urn": "urn:li:share:7457701945907200001", "chars": 1818, "event": "linkedin_post_published", "level": "info", "logger": "src.backend.integrations.linkedin", "timestamp": "2026-05-06T08:05:01.861650Z"}
+
+LiteLLM completion() model= mistral-large-latest; provider = mistral
+{"chars": 1106, "hashtags": 7, "event": "linkedin_post_generated", "level": "info", "logger": "src.backend.agent.post_writer", "timestamp": "2026-05-06T08:44:49.960375Z"}
+{"kind": "linkedin", "post_id": 1, "run_id": "91497d27-ca90-42d1-8187-c481f7508f9e", "run_date": "2026-05-06", "slug": "openai-launches-gpt-5-5-instant-as-new-chatgpt-default-model", "event": "post_generated_saved", "level": "info", "logger": "src.backend.api.routes_posts", "timestamp": "2026-05-06T08:44:50.001640Z"}
+
+LiteLLM completion() model= mistral-large-latest; provider = mistral
+{"chars": 1019, "hashtags": 7, "event": "linkedin_post_generated", "level": "info", "logger": "src.backend.agent.post_writer", "timestamp": "2026-05-06T08:46:45.428794Z"}
+{"kind": "linkedin", "post_id": 2, "run_id": "91497d27-ca90-42d1-8187-c481f7508f9e", "run_date": "2026-05-06", "slug": "openai-launches-gpt-5-5-instant-as-new-chatgpt-default-model", "event": "post_generated_saved", "level": "info", "logger": "src.backend.api.routes_posts", "timestamp": "2026-05-06T08:46:45.457967Z"}
+
+LiteLLM completion() model= mistral-large-latest; provider = mistral
+Fatal error on SSL transport
+protocol: <asyncio.sslproto.SSLProtocol object at 0x000001F52A1D66B0>
+transport: <_ProactorSocketTransport fd=-1 read=<_OverlappedFuture cancelled>>
+Traceback (most recent call last):
+  File "C:\Users\lenovo\AppData\Local\Programs\Python\Python310\lib\asyncio\sslproto.py", line 690, in _process_write_backlog
+    self._transport.write(chunk)
+  File "C:\Users\lenovo\AppData\Local\Programs\Python\Python310\lib\asyncio\proactor_events.py", line 365, in write
+    self._loop_writing(data=bytes(data))
+  File "C:\Users\lenovo\AppData\Local\Programs\Python\Python310\lib\asyncio\proactor_events.py", line 401, in _loop_writing
+    self._write_fut = self._loop._proactor.send(self._sock, data)
+AttributeError: 'NoneType' object has no attribute 'send'
+{"hour": 4, "minute": 0, "tz": "Asia/Kolkata", "event": "inprocess_scheduler_started", "level": "info", "logger": "src.backend.api.main", "timestamp": "2026-05-06T08:50:14.299076Z"}
+
+LiteLLM completion() model= mistral-large-latest; provider = mistral
+{"hour": 4, "minute": 0, "tz": "Asia/Kolkata", "event": "inprocess_scheduler_started", "level": "info", "logger": "src.backend.api.main", "timestamp": "2026-05-06T09:22:47.918665Z"}
+
+LiteLLM completion() model= mistral-large-latest; provider = mistral
+{"chars": 1064, "hashtags": 7, "event": "linkedin_post_generated", "level": "info", "logger": "src.backend.agent.post_writer", "timestamp": "2026-05-06T09:23:34.582557Z"}
+{"kind": "linkedin", "post_id": 3, "run_id": "91497d27-ca90-42d1-8187-c481f7508f9e", "run_date": "2026-05-06", "slug": "openai-launches-gpt-5-5-instant-as-new-chatgpt-default-model", "event": "post_generated_saved", "level": "info", "logger": "src.backend.api.routes_posts", "timestamp": "2026-05-06T09:23:34.610344Z"}
+{"member_urn": "urn:li:person:_CEqnlxV7g", "event": "linkedin_oauth_connected", "level": "info", "logger": "src.backend.integrations.linkedin", "timestamp": "2026-05-06T09:23:49.960463Z"}
+{"urn": "urn:li:share:7457721806838210560", "chars": 1064, "event": "linkedin_post_published", "level": "info", "logger": "src.backend.integrations.linkedin", "timestamp": "2026-05-06T09:23:57.509114Z"}
+
+LiteLLM completion() model= mistral-large-latest; provider = mistral
+{"urn": "urn:li:share:7457722260687343616", "chars": 1769, "event": "linkedin_post_published", "level": "info", "logger": "src.backend.integrations.linkedin", "timestamp": "2026-05-06T09:25:45.482538Z"}
+{"hour": 4, "minute": 0, "tz": "Asia/Kolkata", "event": "inprocess_scheduler_started", "level": "info", "logger": "src.backend.api.main", "timestamp": "2026-05-06T09:35:21.086278Z"}
+{"member_urn": "urn:li:person:_CEqnlxV7g", "event": "linkedin_oauth_connected", "level": "info", "logger": "src.backend.integrations.linkedin", "timestamp": "2026-05-06T09:35:48.000756Z"}
+{"member_urn": "urn:li:person:_CEqnlxV7g", "event": "linkedin_oauth_connected", "level": "info", "logger": "src.backend.integrations.linkedin", "timestamp": "2026-05-06T09:35:49.347469Z"}
+{"member_urn": "urn:li:person:_CEqnlxV7g", "event": "linkedin_oauth_connected", "level": "info", "logger": "src.backend.integrations.linkedin", "timestamp": "2026-05-06T09:35:56.973295Z"}

@@ -17,11 +17,11 @@ Core Python package. Implements the complete trend-intelligence system: configur
 | File | Purpose |
 |---|---|
 | `__init__.py` | Package marker |
-| `config.py` | `Settings` (reads `.env` — now includes LinkedIn OAuth vars); `TopicConfig` from `topics.yaml`; sub-configs for Limits, Models, ChatBudget, Dedup |
+| `config.py` | `Settings` (reads `.env` — includes LinkedIn OAuth vars); `TopicConfig` from `topics.yaml`; sub-configs for Limits, Models, ChatBudget, Dedup |
 | `models.py` | Pydantic domain models: `Source`, `DiscoveredUrl`, `ScrapedPage`, `Cluster`, `TrendSummary`, `DailyBriefs`, `PersistedTrend`, `RunState` |
-| `db_models.py` | SQLAlchemy ORM models for all 8 tables: `Run`, `Trend`, `ChatMessage`, `Insight`, `Chunk`, `StyleSample`, `StyleProfile`, `GeneratedPost`, `LinkedInAccount` |
+| `db_models.py` | SQLAlchemy ORM models for all tables: `Run`, `Trend`, `ChatMessage`, `Insight`, `Chunk`, `StyleSample`, `StyleProfile`, `GeneratedPost`, `LinkedInAccount` |
 | `db.py` | Async session factory (`get_session`) and engine lifecycle helpers |
-| `storage.py` | All DB CRUD: runs, trends, chat messages, insights, style samples, style profile, generated posts, LinkedIn account |
+| `storage.py` | All DB CRUD: runs, trends, chat messages, insights, style samples, style profile, generated posts, LinkedIn account. Includes slug-wide insight/chat queries for post context. |
 | `pipeline.py` | 4-phase pipeline: Discover → Scrape → Synthesise → Persist + RAG index. Also `run_search_synthesis` for ad-hoc |
 | `dedup.py` | `compute_fingerprint` + `deduplicate_urls` |
 | `logging_setup.py` | `structlog` JSON logging; `get_logger()` factory |
@@ -35,21 +35,24 @@ Phase 4 — Persist:   fingerprint_exists_in_window() dedup → upsert_trend()
 ```
 
 ## Last Session Changes
-**Session date:** 2026-04-29
+**Session date:** 2026-05-02
 
 **Changes made:**
-- `config.py` — added `linkedin_client_id`, `linkedin_client_secret`, `linkedin_redirect_uri` fields to `Settings`
-- `db_models.py` — added `StyleSample`, `StyleProfile`, `GeneratedPost`, `LinkedInAccount` ORM models
-- `storage.py` — added CRUD helpers for all 4 new tables (style samples, style profile, generated posts, LinkedIn account); updated import line to include new models
+- `config.py` — added `cache_ttl_hours: int = 18` to `Limits`. Scrape cache files older than this are deleted and re-scraped on next hit.
+- `dedup.py` — `compute_fingerprint` is now **headline-only** (was `headline + all_sources`). Removed the `sources` parameter entirely and the `Source` import. Old fingerprints in the DB are now incompatible but harmless — the dedup window only looks back N days.
+- `storage.py` — added `get_recent_headlines(session, window_days) -> list[str]`: returns all trend headlines from the last N days. Used by pipeline for fuzzy cross-day dedup.
+- `pipeline.py` — (1) both `_scrape_one` functions now check `cache_file.stat().st_mtime` and skip cache if file is older than `limits.cache_ttl_hours`; (2) both `compute_fingerprint` calls updated to drop the now-removed `sources` arg; (3) daily pipeline now fetches `recent_headlines` before the persist loop and skips any trend with ≥80% fuzzy similarity to a recent headline. Added `import time` at the top.
 
-**Reason:** Post Studio feature — LinkedIn post and blog generation with adaptive style learning.
+**Reason:** Four root causes of stale/duplicate trends fixed: (A) scrape cache never expired so weeks-old content was fed to LLM; (B) fingerprint used all-run sources so same story had different fingerprint each day — cross-day dedup never fired; (C) no semantic similarity check meant reworded versions of the same story got through; (D) DuckDuckGo had no date filter.
 
-**Outcome:** All models and storage helpers in place. Migration 0002 creates the corresponding tables. `httpx` (already in requirements) is used by `integrations/linkedin.py` for OAuth token exchange and post publishing.
+**Outcome:** All fixes deployed. The `cross_day_window` in `topics.yaml` was raised from 3 → 7 days to take advantage of the now-working fingerprint dedup. Watch out for: old cached `.md` files in `backend/data/cache/` will be re-scraped on first access past their TTL — this is intentional.
 
-**Watch out for:** `storage.py` is now long (~550 lines). If adding more tables, consider splitting into `storage_chat.py`, `storage_posts.py` etc. The `_orm_to_post` and `_orm_to_run` helpers follow the same pattern — keep consistent.
+**Watch out for:** `compute_fingerprint` signature changed — any external callers (tests, scripts) that passed a `sources` list will break. `test_dedup.py` was already updated.
 
 ## Change Log
 | Date | File(s) Changed | Summary |
 |---|---|---|
+| 2026-05-02 | `config.py`, `dedup.py`, `storage.py`, `pipeline.py` | Fixed 4 root causes of stale/duplicate trends: cache TTL, headline-only fingerprint, fuzzy cross-day dedup, recency filters |
+| 2026-05-01 | `storage.py` | Added slug-wide insight/chat queries; rewrote list_all_generated_posts to avoid ORM outerjoin bug |
 | 2026-04-29 | `config.py`, `db_models.py`, `storage.py` | Added LinkedIn OAuth config, 4 new ORM models, and all CRUD helpers for Post Studio + style learning |
 | — | — | Initial documentation created |

@@ -73,9 +73,8 @@ async def _run_agent(agent: LlmAgent, user_prompt: str) -> Any:
             parts=[types.Part(text=user_prompt)],
         ),
     ):
-        if event.is_final_response() and event.content and event.content.parts:
+        if final_text is None and event.is_final_response() and event.content and event.content.parts:
             final_text = event.content.parts[0].text
-            break
 
     if final_text is None:
         raise RuntimeError("ADK agent produced no final response")
@@ -155,7 +154,7 @@ async def synthesize_daily(
     Replaces cluster + per-cluster summarize — no more 10 headlines for the same event."""
     from datetime import date as _date, timedelta
     today = run_date or _date.today()
-    cutoff = (today - timedelta(days=2)).isoformat()
+    cutoff = (today - timedelta(days=1)).isoformat()
     today_str = today.isoformat()
 
     combined = "\n\n---\n\n".join(content_parts)

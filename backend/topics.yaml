@@ -20,7 +20,7 @@ models:
   cluster: mistral/mistral-large-latest
   summarize: mistral/mistral-large-latest
 dedup:
-  cross_day_window: 3
+  cross_day_window: 7
 blocked_domains:
 - pinterest.com
 - pinterest.*

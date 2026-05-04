@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_settings
 from ..logging_setup import get_logger
-from ..storage import get_linkedin_account, upsert_linkedin_account
+from ..storage import clear_linkedin_account, get_linkedin_account, upsert_linkedin_account
 
 log = get_logger(__name__)
 
@@ -20,7 +20,26 @@ _LI_VERSION = "202503"
 _TOKEN_TTL_SECONDS = 5_184_000  # 60 days
 
 
-def oauth_start() -> str:
+class LinkedInAuthError(ValueError):
+    """Auth or token validity issue requiring re-connect."""
+
+
+def _extract_member_name(me_data: dict) -> str | None:
+    full_name = str(me_data.get("name", "")).strip()
+    if full_name:
+        return full_name
+    given = str(me_data.get("given_name", "")).strip()
+    family = str(me_data.get("family_name", "")).strip()
+    joined = " ".join(x for x in [given, family] if x).strip()
+    if joined:
+        return joined
+    localized_first = str(me_data.get("localizedFirstName", "")).strip()
+    localized_last = str(me_data.get("localizedLastName", "")).strip()
+    localized = " ".join(x for x in [localized_first, localized_last] if x).strip()
+    return localized or None
+
+
+def oauth_start(state: str | None = None) -> str:
     """Return the LinkedIn OAuth authorization URL."""
     settings = get_settings()
     params = {
@@ -29,6 +48,8 @@ def oauth_start() -> str:
         "redirect_uri": settings.linkedin_redirect_uri,
         "scope": "openid profile w_member_social",
     }
+    if state:
+        params["state"] = state
     return f"{_LI_AUTH_URL}?{urllib.parse.urlencode(params)}"
 
 
@@ -74,13 +95,26 @@ async def oauth_callback(session: AsyncSession, code: str) -> dict:
 async def get_connection_status(session: AsyncSession) -> dict:
     account = await get_linkedin_account(session)
     if account is None:
-        return {"connected": False, "expires_at": None, "member_urn": None}
+        return {"connected": False, "expires_at": None, "member_urn": None, "member_name": None}
     now = datetime.now(timezone.utc)
     connected = account["expires_at"] > now
+    member_name: str | None = None
+    if connected:
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                me_resp = await client.get(
+                    _LI_ME_URL,
+                    headers={"Authorization": f"Bearer {account['access_token']}"},
+                )
+                if me_resp.status_code == 200:
+                    member_name = _extract_member_name(me_resp.json())
+        except Exception:
+            member_name = None
     return {
         "connected": connected,
         "expires_at": account["expires_at"].isoformat(),
         "member_urn": account["member_urn"],
+        "member_name": member_name,
     }
 
 
@@ -88,11 +122,11 @@ async def publish_post(session: AsyncSession, content: str) -> str:
     """POST the content to LinkedIn. Returns the post URN from the response header."""
     account = await get_linkedin_account(session)
     if account is None:
-        raise ValueError("LinkedIn account not connected. Authorize first.")
+        raise LinkedInAuthError("LinkedIn account not connected. Authorize first.")
 
     now = datetime.now(timezone.utc)
     if account["expires_at"] <= now:
-        raise ValueError("LinkedIn access token has expired. Please reconnect.")
+        raise LinkedInAuthError("LinkedIn access token has expired. Please reconnect.")
 
     payload = {
         "author": account["member_urn"],
@@ -119,7 +153,10 @@ async def publish_post(session: AsyncSession, content: str) -> str:
             },
         )
         if resp.status_code == 401:
-            raise ValueError("LinkedIn token rejected (401). Please reconnect.")
+            # Token can be revoked before expires_at; clear persisted account so UI
+            # immediately reflects disconnected state and prompts re-connect.
+            await clear_linkedin_account(session)
+            raise LinkedInAuthError("LinkedIn token rejected (401). Please reconnect.")
         resp.raise_for_status()
         post_urn = resp.headers.get("x-restli-id", "")
 

@@ -43,20 +43,21 @@ models:
 ```
 
 ## Last Session Changes
-**Session date:** 2026-04-29
+**Session date:** 2026-05-02
 
 **Changes made:**
-- `.env.example` — added three LinkedIn OAuth variables: `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET`, `LINKEDIN_REDIRECT_URI`
-- `alembic/versions/0002_style_posts_linkedin.py` — new migration creating `style_samples`, `style_profile`, `generated_posts`, `linkedin_account` tables
+- `topics.yaml` — `dedup.cross_day_window` raised from `3` → `7`. With the fingerprint now headline-only and actually matching across days, a 7-day window meaningfully prevents the same story from resurfacing all week.
+- `scripts/reset_today.py` — new utility script (new `scripts/` folder). Connects directly to the DB via SQLAlchemy, deletes today's daily run (cascade-deletes its trends/chunks), then fires a fresh pipeline run. Useful when you want to force a complete re-scrape of today's content. Must be run with `PYTHONUTF8=1` env var on Windows to avoid cp1252 encoding errors in structlog.
 
-**Reason:** Post Studio feature added. Users can now generate LinkedIn posts and blog drafts from their chat sessions, and publish directly to LinkedIn. Style learning requires new DB tables for the corpus and distilled profile.
+**Reason:** `cross_day_window=3` was too short once the fingerprint dedup started working; raised to 7 to cover a full week. The reset script was needed to manually delete stale/partial runs and immediately get fresh trends.
 
-**Outcome:** Migration file is ready. Run `alembic upgrade head` to apply. LinkedIn OAuth requires a Developer App to be registered at linkedin.com/developers/apps — see README.
+**Outcome:** `topics.yaml` updated. `scripts/reset_today.py` works — run as: `cd backend && PYTHONUTF8=1 PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe scripts/reset_today.py`
 
-**Watch out for:** `topics.yaml` controls both the schedule and the search queries. The database is now PostgreSQL (not SQLite) — ensure `DATABASE_URL` in `.env` points at a running Postgres instance with the `vector` extension installed.
+**Watch out for:** `reset_today.py` deletes ALL daily runs for today before starting a new one. It also runs the pipeline synchronously (blocking), which will take ~30 minutes due to RAG indexing. Do not use during production hours. The script uses the venv at `backend/.venv/` — use that Python, not system Python.
 
 ## Change Log
 | Date | File(s) Changed | Summary |
 |---|---|---|
+| 2026-05-02 | `topics.yaml`, `scripts/reset_today.py` (new) | Raised cross_day_window to 7; added reset script to delete today's run and re-trigger pipeline |
 | 2026-04-29 | `.env.example`, `alembic/versions/0002_style_posts_linkedin.py` | Added LinkedIn OAuth env vars; new DB migration for style corpus + generated posts + LinkedIn account |
 | 2026-04-29 | `FOLDER.md` | Initial creation — bootstrapping documentation system |

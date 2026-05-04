@@ -32,6 +32,7 @@ from .routes_admin import router as admin_router
 from .routes_chat import router as chat_router
 from .routes_posts import router as posts_router
 from .routes_search import router as search_router
+from .routes_slack import router as slack_router
 from .routes_trends import router as trends_router
 
 log = get_logger(__name__)
@@ -148,3 +149,4 @@ app.include_router(admin_router)
 app.include_router(search_router)
 app.include_router(chat_router)
 app.include_router(posts_router)
+app.include_router(slack_router)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import time
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -21,6 +22,7 @@ from .rag.indexer import index_trend
 from .storage import (
     create_run,
     fingerprint_exists_in_window,
+    get_recent_headlines,
     get_stale_runs,
     run_exists_for_date,
     unique_slug,
@@ -103,14 +105,17 @@ async def run_pipeline(
             cache_key = hashlib.md5(item["url"].encode()).hexdigest()
             cache_file = cache_dir / f"{cache_key}.md"
             if cache_file.exists():
-                markdown = cache_file.read_text(encoding="utf-8")
-                return item, ScrapedPage(
-                    url=item["url"],
-                    title=item["title"],
-                    markdown=markdown,
-                    domain=item["domain"],
-                    scrape_method="cache",
-                )
+                age_hours = (time.time() - cache_file.stat().st_mtime) / 3600
+                if age_hours <= limits.cache_ttl_hours:
+                    markdown = cache_file.read_text(encoding="utf-8")
+                    return item, ScrapedPage(
+                        url=item["url"],
+                        title=item["title"],
+                        markdown=markdown,
+                        domain=item["domain"],
+                        scrape_method="cache",
+                    )
+                cache_file.unlink(missing_ok=True)
             page = await scrape_url(item["url"], timeout=limits.scrape_timeout_seconds)
             if page:
                 cache_file.write_text(page.markdown, encoding="utf-8")
@@ -162,11 +167,15 @@ async def run_pipeline(
     warnings = 0
     window = topic_cfg.dedup.cross_day_window
     settings = get_settings()
+    recent_headlines = await get_recent_headlines(session, window)
 
     for summary in deduped_trends:
-        fingerprint = compute_fingerprint(summary.headline, all_sources)
+        fingerprint = compute_fingerprint(summary.headline)
         if await fingerprint_exists_in_window(session, fingerprint, window):
             log.info("trend_dedup_skipped", fingerprint=fingerprint[:8], headline=summary.headline)
+            continue
+        if any(fuzz.token_sort_ratio(summary.headline, h) >= 80 for h in recent_headlines):
+            log.info("trend_fuzzy_dedup_skipped", headline=summary.headline)
             continue
 
         slug = await unique_slug(session, summary.headline, run_date)
@@ -308,14 +317,17 @@ async def run_search_synthesis(
             cache_key = hashlib.md5(item["url"].encode()).hexdigest()
             cache_file = cache_dir / f"{cache_key}.md"
             if cache_file.exists():
-                markdown = cache_file.read_text(encoding="utf-8")
-                return item, ScrapedPage(
-                    url=item["url"],
-                    title=item["title"],
-                    markdown=markdown,
-                    domain=item["domain"],
-                    scrape_method="cache",
-                )
+                age_hours = (time.time() - cache_file.stat().st_mtime) / 3600
+                if age_hours <= limits.cache_ttl_hours:
+                    markdown = cache_file.read_text(encoding="utf-8")
+                    return item, ScrapedPage(
+                        url=item["url"],
+                        title=item["title"],
+                        markdown=markdown,
+                        domain=item["domain"],
+                        scrape_method="cache",
+                    )
+                cache_file.unlink(missing_ok=True)
             page = await scrape_url(item["url"], timeout=limits.scrape_timeout_seconds)
             if page:
                 cache_file.write_text(page.markdown, encoding="utf-8")
@@ -362,7 +374,7 @@ async def run_search_synthesis(
         await update_run_state(session, run_id, "failed", 0, 0, f"SYNTHESIS_FAILED:{exc}")
         raise
 
-    fingerprint = compute_fingerprint(summary.headline, sources)
+    fingerprint = compute_fingerprint(summary.headline)
     slug = await unique_slug(session, summary.headline, run_date)
 
     trend = PersistedTrend(
