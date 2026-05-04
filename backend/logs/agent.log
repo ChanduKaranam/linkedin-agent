@@ -6617,3 +6617,339 @@ LiteLLM completion() model= mistral-large-latest; provider = mistral
 
 LiteLLM completion() model= mistral-large-latest; provider = mistral
 {"chars": 1072, "hashtags": 7, "event": "linkedin_post_generated", "level": "info", "logger": "backend.agent.post_writer", "timestamp": "2026-05-01T08:29:10.085894Z"}
+{"hour": 4, "minute": 0, "tz": "Asia/Kolkata", "event": "inprocess_scheduler_started", "level": "info", "logger": "backend.src.backend.api.main", "timestamp": "2026-05-04T10:31:49.620863Z"}
+{"reason": "server_started_after_schedule_time", "event": "catchup_run_triggered", "level": "info", "logger": "backend.src.backend.api.main", "timestamp": "2026-05-04T10:31:49.822488Z"}
+{"run_id": "f5492161-8e33-4a2d-a2e9-289b8821d6b4", "date": "2026-05-04", "event": "scheduled_run_started", "level": "info", "logger": "backend.src.backend.api.main", "timestamp": "2026-05-04T10:31:50.001260Z"}
+{"phase": "discover", "run_id": "f5492161-8e33-4a2d-a2e9-289b8821d6b4", "event": "phase_start", "level": "info", "logger": "backend.src.backend.pipeline", "timestamp": "2026-05-04T10:31:50.007470Z"}
+{"url_count": 29, "run_id": "f5492161-8e33-4a2d-a2e9-289b8821d6b4", "event": "discover_complete", "level": "info", "logger": "backend.src.backend.pipeline", "timestamp": "2026-05-04T10:32:10.389138Z"}
+{"phase": "scrape", "run_id": "f5492161-8e33-4a2d-a2e9-289b8821d6b4", "url_count": 29, "event": "phase_start", "level": "info", "logger": "backend.src.backend.pipeline", "timestamp": "2026-05-04T10:32:10.407254Z"}
+{"url": "https://www.manilatimes.net/2026/05/02/tmt-newswire/globenewswire/sigenergy-releases-2025-environmental-social-and-governance-esg-report/2334231/amp", "reason": "insufficient_content", "event": "scrape_failed", "level": "warning", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:32:40.866841Z"}
+{"url": "https://uk.style.yahoo.com/ai-starting-outperform-doctors-why-153633147.html", "method": "crawl4ai", "chars": 3756, "event": "scrape_success", "level": "info", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:32:42.778401Z"}
+{"url": "https://decrypt.co/366389/openclaw-apple-mac-mini-shortage-ai-2026", "reason": "insufficient_content", "event": "scrape_failed", "level": "warning", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:32:43.110716Z"}
+Task exception was never retrieved
+future: <Task finished name='Task-93' coro=<Connection.run.<locals>.init() done, defined at C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\playwright\_impl\_connection.py:309> exception=Exception('Connection.init: Connection closed while reading from the driver')>
+Traceback (most recent call last):
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\playwright\_impl\_connection.py", line 310, in init
+    self.playwright_future.set_result(await self._root_object.initialize())
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\playwright\_impl\_connection.py", line 251, in initialize
+    await self._channel.send(
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\playwright\_impl\_connection.py", line 69, in send
+    return await self._connection.wrap_api_call(
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\playwright\_impl\_connection.py", line 559, in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+Exception: Connection.init: Connection closed while reading from the driver
+{"run_id": "f5492161-8e33-4a2d-a2e9-289b8821d6b4", "event": "stale_run_marked_failed", "level": "warning", "logger": "backend.src.backend.api.main", "timestamp": "2026-05-04T10:33:06.163611Z"}
+{"hour": 4, "minute": 0, "tz": "Asia/Kolkata", "event": "inprocess_scheduler_started", "level": "info", "logger": "backend.src.backend.api.main", "timestamp": "2026-05-04T10:33:06.251065Z"}
+{"reason": "server_started_after_schedule_time", "event": "catchup_run_triggered", "level": "info", "logger": "backend.src.backend.api.main", "timestamp": "2026-05-04T10:33:06.335381Z"}
+{"run_id": "8cbb4453-dd0e-4ec4-94b7-0071ddaee57e", "date": "2026-05-04", "event": "scheduled_run_started", "level": "info", "logger": "backend.src.backend.api.main", "timestamp": "2026-05-04T10:33:06.427898Z"}
+{"phase": "discover", "run_id": "8cbb4453-dd0e-4ec4-94b7-0071ddaee57e", "event": "phase_start", "level": "info", "logger": "backend.src.backend.pipeline", "timestamp": "2026-05-04T10:33:06.433783Z"}
+{"url_count": 29, "run_id": "8cbb4453-dd0e-4ec4-94b7-0071ddaee57e", "event": "discover_complete", "level": "info", "logger": "backend.src.backend.pipeline", "timestamp": "2026-05-04T10:33:19.654630Z"}
+{"phase": "scrape", "run_id": "8cbb4453-dd0e-4ec4-94b7-0071ddaee57e", "url_count": 29, "event": "phase_start", "level": "info", "logger": "backend.src.backend.pipeline", "timestamp": "2026-05-04T10:33:19.663694Z"}
+{"url": "https://www.manilatimes.net/2026/05/02/tmt-newswire/globenewswire/sigenergy-releases-2025-environmental-social-and-governance-esg-report/2334231/amp", "reason": "insufficient_content", "event": "scrape_failed", "level": "warning", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:33:24.507728Z"}
+{"url": "https://decrypt.co/366389/openclaw-apple-mac-mini-shortage-ai-2026", "reason": "insufficient_content", "event": "scrape_failed", "level": "warning", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:33:24.673596Z"}
+{"url": "https://techcrunch.com/sponsor/tether/tether-ai-is-building-the-stable-intelligence-layer-a-highly-efficient-platform-designed-to-scale-on-edgedevices-made-for-the-people/", "method": "crawl4ai", "chars": 23461, "event": "scrape_success", "level": "info", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:33:26.328750Z"}
+{"url": "https://www.businessinsider.com/pentagon-pizza-theory-finds-new-life-in-ai-era-2026-5", "method": "crawl4ai", "chars": 18951, "event": "scrape_success", "level": "info", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:33:29.760595Z"}
+{"url": "https://markets.ft.com/data/announce/detail?dockey=600-202605040500PR_NEWS_USPRX____SF49974-1", "method": "crawl4ai", "chars": 24786, "event": "scrape_success", "level": "info", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:33:30.270887Z"}
+{"url": "https://www.forbes.com/sites/timlammers/2026/05/03/alex-ligertwood-former-santana-lead-singer-dies-at-79/", "reason": "insufficient_content", "event": "scrape_failed", "level": "warning", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:33:30.807451Z"}
+{"url": "https://www.forbes.com/sites/peterchawaga/2026/05/04/phillies-preston-mattingly-sends-urgency-message-on-dad-replacing-rob-thomson/", "reason": "insufficient_content", "event": "scrape_failed", "level": "warning", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:33:30.963428Z"}
+{"url": "https://www.burlingtonfreepress.com/story/news/local/vermont/2026/05/04/parkinsons-disease-vermont-research-tool-artifical-intelligence/89751403007/", "method": "crawl4ai", "chars": 10265, "event": "scrape_success", "level": "info", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:33:33.820499Z"}
+{"url": "https://www.forbes.com/sites/keelycatwells/2026/05/03/artificial-intelligence-has-one-chance-to-get-accessibility-right/", "reason": "insufficient_content", "event": "scrape_failed", "level": "warning", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:33:34.137281Z"}
+{"url": "https://www.forbes.com/sites/daveywinder/2026/05/03/update-linux-now-as-9-year-old-root-hack-confirmed-cisa-warns-users/", "reason": "insufficient_content", "event": "scrape_failed", "level": "warning", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:33:36.936487Z"}
+{"url": "https://www.forbes.com/sites/johnwerner/2026/05/03/transformer-architecture-superpowers-and-the-march-toward-agi/", "reason": "insufficient_content", "event": "scrape_failed", "level": "warning", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:33:39.228729Z"}
+{"url": "https://letsdatascience.com/news/nga-expands-ai-use-to-speed-geospatial-analysis-8df52ade", "method": "crawl4ai", "chars": 7932, "event": "scrape_success", "level": "info", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:33:39.730794Z"}
+{"url": "https://www.foxnews.com/tech/united-arab-emirates-plans-ai-run-government-within-two-years", "method": "crawl4ai", "chars": 61161, "event": "scrape_success", "level": "info", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:33:41.425273Z"}
+{"url": "https://www.ndtv.com/world-news/secret-pentagon-ai-deals-why-nvidia-and-microsoft-are-joining-the-frontlines-11443189", "reason": "insufficient_content", "event": "scrape_failed", "level": "warning", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:33:42.131971Z"}
+{"url": "https://www.securityweek.com/us-military-reaches-deals-with-7-tech-companies-to-use-their-ai-on-classified-systems/", "method": "crawl4ai", "chars": 27040, "event": "scrape_success", "level": "info", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:33:44.686250Z"}
+{"url": "https://www.harianbasis.co/en/spacex-launches-korean-satellite-vandenberg", "method": "crawl4ai", "chars": 22454, "event": "scrape_success", "level": "info", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:33:45.633031Z"}
+{"url": "https://www.forbes.com/sites/bill_stone/2026/05/03/earnings-season-surges-as-big-tech-delivers-and-128-reports-loom/", "reason": "insufficient_content", "event": "scrape_failed", "level": "warning", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:33:45.957199Z"}
+{"url": "https://www.marketbeat.com/instant-alerts/filing-vanguard-group-inc-trims-holdings-in-coeur-mining-inc-cde-2026-05-02/", "method": "crawl4ai", "chars": 48452, "event": "scrape_success", "level": "info", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:33:49.389222Z"}
+{"url": "https://www.allsides.com/story/defense-and-security-pentagon-strikes-deal-8-major-ai-companies", "method": "crawl4ai", "chars": 24708, "event": "scrape_success", "level": "info", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:33:52.945066Z"}
+{"url": "https://www.reuters.com/technology/formula-one-evolves-ai-becomes-part-race-2026-05-04/", "reason": "insufficient_content", "event": "scrape_failed", "level": "warning", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:33:54.167694Z"}
+{"url": "https://www.pv-magazine-india.com/2026/05/04/solar-manufacturing-usa-2026-production-and-technology-at-the-heart-of-us-solar/", "method": "crawl4ai", "chars": 45034, "event": "scrape_success", "level": "info", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:33:56.134952Z"}
+{"url": "https://www.wsj.com/tech/ai/mu[REDACTED]", "reason": "insufficient_content", "event": "scrape_failed", "level": "warning", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:33:57.060854Z"}
+{"url": "https://www.bloomberg.com/news/articles/2026-05-03/big-tech-earnings-show-split-between-ai-trade-winners-and-losers", "method": "crawl4ai", "chars": 15791, "event": "scrape_success", "level": "info", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:34:00.769315Z"}
+{"url": "https://finance.yahoo.com/markets/stocks/articles/big-tech-earnings-show-split-130007908.html", "method": "crawl4ai", "chars": 32409, "event": "scrape_success", "level": "info", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:34:01.372803Z"}
+{"url": "https://uk.news.yahoo.com/crucial-challenges-using-waitlist-controls-071500377.html", "method": "crawl4ai", "chars": 35771, "event": "scrape_success", "level": "info", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:34:02.663860Z"}
+{"url": "https://www.nature.com/articles/s41598-026-49656-z", "method": "crawl4ai", "chars": 41820, "event": "scrape_success", "level": "info", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:34:04.288240Z"}
+{"url": "https://www.ynetnews.com/health_science/article/h1b0arncbx", "method": "crawl4ai", "chars": 13582, "event": "scrape_success", "level": "info", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:34:18.653944Z"}
+{"url": "https://www.ynetnews.com/opinions-analysis/article/ryhnmv4a11x", "method": "crawl4ai", "chars": 27419, "event": "scrape_success", "level": "info", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:34:32.224261Z"}
+{"scraped": 18, "total": 29, "run_id": "8cbb4453-dd0e-4ec4-94b7-0071ddaee57e", "event": "scrape_complete", "level": "info", "logger": "backend.src.backend.pipeline", "timestamp": "2026-05-04T10:34:32.226295Z"}
+{"phase": "daily_synthesis", "run_id": "8cbb4453-dd0e-4ec4-94b7-0071ddaee57e", "article_count": 18, "event": "phase_start", "level": "info", "logger": "backend.src.backend.pipeline", "timestamp": "2026-05-04T10:34:32.231906Z"}
+
+LiteLLM completion() model= mistral-large-latest; provider = mistral
+{"run_id": "8cbb4453-dd0e-4ec4-94b7-0071ddaee57e", "event": "stale_run_marked_failed", "level": "warning", "logger": "backend.src.backend.api.main", "timestamp": "2026-05-04T10:35:02.539295Z"}
+{"hour": 4, "minute": 0, "tz": "Asia/Kolkata", "event": "inprocess_scheduler_started", "level": "info", "logger": "backend.src.backend.api.main", "timestamp": "2026-05-04T10:35:02.624151Z"}
+{"reason": "server_started_after_schedule_time", "event": "catchup_run_triggered", "level": "info", "logger": "backend.src.backend.api.main", "timestamp": "2026-05-04T10:35:02.686509Z"}
+{"run_id": "18d8f361-1410-4556-9df6-9da27ea13a4b", "date": "2026-05-04", "event": "scheduled_run_started", "level": "info", "logger": "backend.src.backend.api.main", "timestamp": "2026-05-04T10:35:02.775186Z"}
+{"phase": "discover", "run_id": "18d8f361-1410-4556-9df6-9da27ea13a4b", "event": "phase_start", "level": "info", "logger": "backend.src.backend.pipeline", "timestamp": "2026-05-04T10:35:02.780238Z"}
+{"run_id": "18d8f361-1410-4556-9df6-9da27ea13a4b", "event": "stale_run_marked_failed", "level": "warning", "logger": "backend.src.backend.api.main", "timestamp": "2026-05-04T10:35:22.513761Z"}
+{"hour": 4, "minute": 0, "tz": "Asia/Kolkata", "event": "inprocess_scheduler_started", "level": "info", "logger": "backend.src.backend.api.main", "timestamp": "2026-05-04T10:35:22.590977Z"}
+{"reason": "server_started_after_schedule_time", "event": "catchup_run_triggered", "level": "info", "logger": "backend.src.backend.api.main", "timestamp": "2026-05-04T10:35:22.654307Z"}
+{"run_id": "47846553-981e-451a-a0d9-7faf497016d8", "date": "2026-05-04", "event": "scheduled_run_started", "level": "info", "logger": "backend.src.backend.api.main", "timestamp": "2026-05-04T10:35:22.744217Z"}
+{"phase": "discover", "run_id": "47846553-981e-451a-a0d9-7faf497016d8", "event": "phase_start", "level": "info", "logger": "backend.src.backend.pipeline", "timestamp": "2026-05-04T10:35:22.749226Z"}
+{"url_count": 29, "run_id": "47846553-981e-451a-a0d9-7faf497016d8", "event": "discover_complete", "level": "info", "logger": "backend.src.backend.pipeline", "timestamp": "2026-05-04T10:35:36.679978Z"}
+{"phase": "scrape", "run_id": "47846553-981e-451a-a0d9-7faf497016d8", "url_count": 29, "event": "phase_start", "level": "info", "logger": "backend.src.backend.pipeline", "timestamp": "2026-05-04T10:35:36.685723Z"}
+{"url": "https://decrypt.co/366389/openclaw-apple-mac-mini-shortage-ai-2026", "reason": "insufficient_content", "event": "scrape_failed", "level": "warning", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:35:40.712833Z"}
+{"url": "https://www.manilatimes.net/2026/05/02/tmt-newswire/globenewswire/sigenergy-releases-2025-environmental-social-and-governance-esg-report/2334231/amp", "reason": "insufficient_content", "event": "scrape_failed", "level": "warning", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:35:40.732940Z"}
+{"url": "https://www.forbes.com/sites/timlammers/2026/05/03/alex-ligertwood-former-santana-lead-singer-dies-at-79/", "reason": "insufficient_content", "event": "scrape_failed", "level": "warning", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:35:40.745659Z"}
+{"url": "https://www.forbes.com/sites/peterchawaga/2026/05/04/phillies-preston-mattingly-sends-urgency-message-on-dad-replacing-rob-thomson/", "reason": "insufficient_content", "event": "scrape_failed", "level": "warning", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:35:42.252138Z"}
+{"url": "https://www.forbes.com/sites/keelycatwells/2026/05/03/artificial-intelligence-has-one-chance-to-get-accessibility-right/", "reason": "insufficient_content", "event": "scrape_failed", "level": "warning", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:35:43.720328Z"}
+{"url": "https://www.ndtv.com/world-news/secret-pentagon-ai-deals-why-nvidia-and-microsoft-are-joining-the-frontlines-11443189", "reason": "insufficient_content", "event": "scrape_failed", "level": "warning", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:35:44.124763Z"}
+{"url": "https://www.forbes.com/sites/daveywinder/2026/05/03/update-linux-now-as-9-year-old-root-hack-confirmed-cisa-warns-users/", "reason": "insufficient_content", "event": "scrape_failed", "level": "warning", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:35:46.260097Z"}
+{"url": "https://www.reuters.com/technology/formula-one-evolves-ai-becomes-part-race-2026-05-04/", "reason": "insufficient_content", "event": "scrape_failed", "level": "warning", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:35:46.760060Z"}
+{"url": "https://www.forbes.com/sites/johnwerner/2026/05/03/transformer-architecture-superpowers-and-the-march-toward-agi/", "reason": "insufficient_content", "event": "scrape_failed", "level": "warning", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:35:48.279690Z"}
+{"url": "https://www.wsj.com/tech/ai/mu[REDACTED]", "reason": "insufficient_content", "event": "scrape_failed", "level": "warning", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:35:49.124271Z"}
+{"url": "https://www.forbes.com/sites/bill_stone/2026/05/03/earnings-season-surges-as-big-tech-delivers-and-128-reports-loom/", "reason": "insufficient_content", "event": "scrape_failed", "level": "warning", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:35:50.757912Z"}
+{"url": "https://www.aol.com/finance/anthropic-study-reveals-jobs-most-103500728.html", "method": "crawl4ai", "chars": 24929, "event": "scrape_success", "level": "info", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:35:52.085821Z"}
+{"url": "https://www.forbes.com/sites/jilliandara/2026/05/03/why-you-should-be-using-reposado-tequila-in-your-margaritas/", "reason": "insufficient_content", "event": "scrape_failed", "level": "warning", "logger": "backend.src.backend.agent.tools.scrape", "timestamp": "2026-05-04T10:35:52.997525Z"}
+{"scraped": 17, "total": 29, "run_id": "47846553-981e-451a-a0d9-7faf497016d8", "event": "scrape_complete", "level": "info", "logger": "backend.src.backend.pipeline", "timestamp": "2026-05-04T10:35:52.999317Z"}
+{"phase": "daily_synthesis", "run_id": "47846553-981e-451a-a0d9-7faf497016d8", "article_count": 17, "event": "phase_start", "level": "info", "logger": "backend.src.backend.pipeline", "timestamp": "2026-05-04T10:35:53.010294Z"}
+
+LiteLLM completion() model= mistral-large-latest; provider = mistral
+{"topic": "AI & tech", "story_count": 9, "event": "daily_synthesis_complete", "level": "info", "logger": "backend.src.backend.agent.trend_agent", "timestamp": "2026-05-04T10:37:19.352214Z"}
+{"story_count": 9, "run_id": "47846553-981e-451a-a0d9-7faf497016d8", "event": "daily_synthesis_complete", "level": "info", "logger": "backend.src.backend.pipeline", "timestamp": "2026-05-04T10:37:19.362229Z"}
+Failed to detach context
+Traceback (most recent call last):
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\opentelemetry\trace\__init__.py", line 619, in use_span
+    yield span
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\opentelemetry\trace\__init__.py", line 519, in start_as_current_span
+    yield span
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\opentelemetry\trace\__init__.py", line 454, in start_as_current_span
+    yield span
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\google\adk\telemetry\tracing.py", line 749, in _use_native_generate_content_span_stable_semconv
+    yield gc_span
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\google\adk\telemetry\tracing.py", line 761, in _use_native_generate_content_span
+    yield gc_span
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\google\adk\telemetry\tracing.py", line 613, in use_inference_span
+    yield gc_span
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\google\adk\flows\llm_flows\base_llm_flow.py", line 389, in _run_and_handle_error
+    yield llm_response
+GeneratorExit
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\opentelemetry\context\__init__.py", line 155, in detach
+    _RUNTIME_CONTEXT.detach(token)
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\opentelemetry\context\contextvars_context.py", line 53, in detach
+    self._current_context.reset(token)
+ValueError: <Token var=<ContextVar name='current_context' default={} at 0x0000021CDB8A3600> at 0x0000021CF5525000> was created in a different Context
+Failed to detach context
+Traceback (most recent call last):
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\opentelemetry\trace\__init__.py", line 619, in use_span
+    yield span
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\opentelemetry\trace\__init__.py", line 519, in start_as_current_span
+    yield span
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\opentelemetry\trace\__init__.py", line 454, in start_as_current_span
+    yield span
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\google\adk\flows\llm_flows\base_llm_flow.py", line 1264, in _call_llm_with_tracing
+    yield llm_response
+GeneratorExit
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\opentelemetry\context\__init__.py", line 155, in detach
+    _RUNTIME_CONTEXT.detach(token)
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\opentelemetry\context\contextvars_context.py", line 53, in detach
+    self._current_context.reset(token)
+ValueError: <Token var=<ContextVar name='current_context' default={} at 0x0000021CDB8A3600> at 0x0000021CF5524B40> was created in a different Context
+Failed to detach context
+Traceback (most recent call last):
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\opentelemetry\trace\__init__.py", line 619, in use_span
+    yield span
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\opentelemetry\trace\__init__.py", line 519, in start_as_current_span
+    yield span
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\opentelemetry\trace\__init__.py", line 454, in start_as_current_span
+    yield span
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\google\adk\telemetry\_instrumentation.py", line 87, in record_agent_invocation
+    yield tel_ctx
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\google\adk\agents\base_agent.py", line 296, in run_async
+    yield event
+GeneratorExit
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\opentelemetry\context\__init__.py", line 155, in detach
+    _RUNTIME_CONTEXT.detach(token)
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\opentelemetry\context\contextvars_context.py", line 53, in detach
+    self._current_context.reset(token)
+ValueError: <Token var=<ContextVar name='current_context' default={} at 0x0000021CDB8A3600> at 0x0000021CF5819D00> was created in a different Context
+Failed to detach context
+Traceback (most recent call last):
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\opentelemetry\trace\__init__.py", line 619, in use_span
+    yield span
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\opentelemetry\trace\__init__.py", line 519, in start_as_current_span
+    yield span
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\opentelemetry\trace\__init__.py", line 454, in start_as_current_span
+    yield span
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\google\adk\runners.py", line 617, in _run_with_trace
+    yield event
+GeneratorExit
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\opentelemetry\context\__init__.py", line 155, in detach
+    _RUNTIME_CONTEXT.detach(token)
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\opentelemetry\context\contextvars_context.py", line 53, in detach
+    self._current_context.reset(token)
+ValueError: <Token var=<ContextVar name='current_context' default={} at 0x0000021CDB8A3600> at 0x0000021CF5810840> was created in a different Context
+{"run_id": "47846553-981e-451a-a0d9-7faf497016d8", "error": "(sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedTableError'>: relation \"chunks\" does not exist\n[SQL: DELETE FROM chunks WHERE chunks.trend_id = $1::BIGINT AND chunks.source_url = $2::VARCHAR]\n[parameters: (206, 'https://techcrunch.com/sponsor/tether/tether-ai-is-building-the-stable-intelligence-layer-a-highly-efficient-platform-designed-to-scale-on-edgedevices-made-for-the-people/')]\n(Background on this error at: https://sqlalche.me/e/20/f405)", "event": "pipeline_uncaught_error", "level": "error", "logger": "backend.src.backend.pipeline", "timestamp": "2026-05-04T10:37:19.502409Z", "exception": "Traceback (most recent call last):\n  File \"C:\\Users\\lenovo\\Documents\\GitHub\\linkedin-agent\\backend\\venv\\lib\\site-packages\\sqlalchemy\\dialects\\postgresql\\asyncpg.py\", line 526, in _prepare_and_execute\n    prepared_stmt, attributes = await adapt_connection._prepare(\n  File \"C:\\Users\\lenovo\\Documents\\GitHub\\linkedin-agent\\backend\\venv\\lib\\site-packages\\sqlalchemy\\dialects\\postgresql\\asyncpg.py\", line 773, in _prepare\n    prepared_stmt = await self._connection.prepare(\n  File \"C:\\Users\\lenovo\\Documents\\GitHub\\linkedin-agent\\backend\\venv\\lib\\site-packages\\asyncpg\\connection.py\", line 638, in prepare\n    return await self._prepare(\n  File \"C:\\Users\\lenovo\\Documents\\GitHub\\linkedin-agent\\backend\\venv\\lib\\site-packages\\asyncpg\\connection.py\", line 657, in _prepare\n    stmt = await self._get_statement(\n  File \"C:\\Users\\lenovo\\Documents\\GitHub\\linkedin-agent\\backend\\venv\\lib\\site-packages\\asyncpg\\connection.py\", line 443, in _get_statement\n    statement = await self._protocol.prepare(\n  File \"asyncpg/protocol/protocol.pyx\", line 165, in prepare\nasyncpg.exceptions.UndefinedTableError: relation \"chunks\" does not exist\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File \"C:\\Users\\lenovo\\Documents\\GitHub\\linkedin-agent\\backend\\venv\\lib\\site-packages\\sqlalchemy\\engine\\base.py\", line 1967, in _exec_single_context\n    self.dialect.do_execute(\n  File \"C:\\Users\\lenovo\\Documents\\GitHub\\linkedin-agent\\backend\\venv\\lib\\site-packages\\sqlalchemy\\engine\\default.py\", line 952, in do_execute\n    cursor.execute(statement, parameters)\n  File \"C:\\Users\\lenovo\\Documents\\GitHub\\linkedin-agent\\backend\\venv\\lib\\site-packages\\sqlalchemy\\dialects\\postgresql\\asyncpg.py\", line 585, in execute\n    self._adapt_connection.await_(\n  File \"C:\\Users\\lenovo\\Documents\\GitHub\\linkedin-agent\\backend\\venv\\lib\\site-packages\\sqlalchemy\\util\\_concurrency_py3k.py\", line 132, in await_only\n    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501\n  File \"C:\\Users\\lenovo\\Documents\\GitHub\\linkedin-agent\\backend\\venv\\lib\\site-packages\\sqlalchemy\\util\\_concurrency_py3k.py\", line 196, in greenlet_spawn\n    value = await result\n  File \"C:\\Users\\lenovo\\Documents\\GitHub\\linkedin-agent\\backend\\venv\\lib\\site-packages\\sqlalchemy\\dialects\\postgresql\\asyncpg.py\", line 563, in _prepare_and_execute\n    self._handle_exception(error)\n  File \"C:\\Users\\lenovo\\Documents\\GitHub\\linkedin-agent\\backend\\venv\\lib\\site-packages\\sqlalchemy\\dialects\\postgresql\\asyncpg.py\", line 513, in _handle_exception\n    self._adapt_connection._handle_exception(error)\n  File \"C:\\Users\\lenovo\\Documents\\GitHub\\linkedin-agent\\backend\\venv\\lib\\site-packages\\sqlalchemy\\dialects\\postgresql\\asyncpg.py\", line 797, in _handle_exception\n    raise translated_error from error\nsqlalchemy.dialects.postgresql.asyncpg.AsyncAdapt_asyncpg_dbapi.ProgrammingError: <class 'asyncpg.exceptions.UndefinedTableError'>: relation \"chunks\" does not exist\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File \"C:\\Users\\lenovo\\Documents\\GitHub\\linkedin-agent\\backend\\src\\backend\\pipeline.py\", line 237, in run_pipeline_safe\n    await run_pipeline(session, run_id, run_date, topic_cfg, cache_dir)\n  File \"C:\\Users\\lenovo\\Documents\\GitHub\\linkedin-agent\\backend\\src\\backend\\pipeline.py\", line 185, in run_pipeline\n    await index_trend(session, trend_id, run_id, all_sources, cache_dir)\n  File \"C:\\Users\\lenovo\\Documents\\GitHub\\linkedin-agent\\backend\\src\\backend\\rag\\indexer.py\", line 44, in index_trend\n    await session.execute(\n  File \"C:\\Users\\lenovo\\Documents\\GitHub\\linkedin-agent\\backend\\venv\\lib\\site-packages\\sqlalchemy\\ext\\asyncio\\session.py\", line 449, in execute\n    result = await greenlet_spawn(\n  File \"C:\\Users\\lenovo\\Documents\\GitHub\\linkedin-agent\\backend\\venv\\lib\\site-packages\\sqlalchemy\\util\\_concurrency_py3k.py\", line 201, in greenlet_spawn\n    result = context.throw(*sys.exc_info())\n  File \"C:\\Users\\lenovo\\Documents\\GitHub\\linkedin-agent\\backend\\venv\\lib\\site-packages\\sqlalchemy\\orm\\session.py\", line 2351, in execute\n    return self._execute_internal(\n  File \"C:\\Users\\lenovo\\Documents\\GitHub\\linkedin-agent\\backend\\venv\\lib\\site-packages\\sqlalchemy\\orm\\session.py\", line 2249, in _execute_internal\n    result: Result[Any] = compile_state_cls.orm_execute_statement(\n  File \"C:\\Users\\lenovo\\Documents\\GitHub\\linkedin-agent\\backend\\venv\\lib\\site-packages\\sqlalchemy\\orm\\bulk_persistence.py\", line 2033, in orm_execute_statement\n    return super().orm_execute_statement(\n  File \"C:\\Users\\lenovo\\Documents\\GitHub\\linkedin-agent\\backend\\venv\\lib\\site-packages\\sqlalchemy\\orm\\context.py\", line 306, in orm_execute_statement\n    result = conn.execute(\n  File \"C:\\Users\\lenovo\\Documents\\GitHub\\linkedin-agent\\backend\\venv\\lib\\site-packages\\sqlalchemy\\engine\\base.py\", line 1419, in execute\n    return meth(\n  File \"C:\\Users\\lenovo\\Documents\\GitHub\\linkedin-agent\\backend\\venv\\lib\\site-packages\\sqlalchemy\\sql\\elements.py\", line 527, in _execute_on_connection\n    return connection._execute_clauseelement(\n  File \"C:\\Users\\lenovo\\Documents\\GitHub\\linkedin-agent\\backend\\venv\\lib\\site-packages\\sqlalchemy\\engine\\base.py\", line 1641, in _execute_clauseelement\n    ret = self._execute_context(\n  File \"C:\\Users\\lenovo\\Documents\\GitHub\\linkedin-agent\\backend\\venv\\lib\\site-packages\\sqlalchemy\\engine\\base.py\", line 1846, in _execute_context\n    return self._exec_single_context(\n  File \"C:\\Users\\lenovo\\Documents\\GitHub\\linkedin-agent\\backend\\venv\\lib\\site-packages\\sqlalchemy\\engine\\base.py\", line 1986, in _exec_single_context\n    self._handle_dbapi_exception(\n  File \"C:\\Users\\lenovo\\Documents\\GitHub\\linkedin-agent\\backend\\venv\\lib\\site-packages\\sqlalchemy\\engine\\base.py\", line 2363, in _handle_dbapi_exception\n    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e\n  File \"C:\\Users\\lenovo\\Documents\\GitHub\\linkedin-agent\\backend\\venv\\lib\\site-packages\\sqlalchemy\\engine\\base.py\", line 1967, in _exec_single_context\n    self.dialect.do_execute(\n  File \"C:\\Users\\lenovo\\Documents\\GitHub\\linkedin-agent\\backend\\venv\\lib\\site-packages\\sqlalchemy\\engine\\default.py\", line 952, in do_execute\n    cursor.execute(statement, parameters)\n  File \"C:\\Users\\lenovo\\Documents\\GitHub\\linkedin-agent\\backend\\venv\\lib\\site-packages\\sqlalchemy\\dialects\\postgresql\\asyncpg.py\", line 585, in execute\n    self._adapt_connection.await_(\n  File \"C:\\Users\\lenovo\\Documents\\GitHub\\linkedin-agent\\backend\\venv\\lib\\site-packages\\sqlalchemy\\util\\_concurrency_py3k.py\", line 132, in await_only\n    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501\n  File \"C:\\Users\\lenovo\\Documents\\GitHub\\linkedin-agent\\backend\\venv\\lib\\site-packages\\sqlalchemy\\util\\_concurrency_py3k.py\", line 196, in greenlet_spawn\n    value = await result\n  File \"C:\\Users\\lenovo\\Documents\\GitHub\\linkedin-agent\\backend\\venv\\lib\\site-packages\\sqlalchemy\\dialects\\postgresql\\asyncpg.py\", line 563, in _prepare_and_execute\n    self._handle_exception(error)\n  File \"C:\\Users\\lenovo\\Documents\\GitHub\\linkedin-agent\\backend\\venv\\lib\\site-packages\\sqlalchemy\\dialects\\postgresql\\asyncpg.py\", line 513, in _handle_exception\n    self._adapt_connection._handle_exception(error)\n  File \"C:\\Users\\lenovo\\Documents\\GitHub\\linkedin-agent\\backend\\venv\\lib\\site-packages\\sqlalchemy\\dialects\\postgresql\\asyncpg.py\", line 797, in _handle_exception\n    raise translated_error from error\nsqlalchemy.exc.ProgrammingError: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedTableError'>: relation \"chunks\" does not exist\n[SQL: DELETE FROM chunks WHERE chunks.trend_id = $1::BIGINT AND chunks.source_url = $2::VARCHAR]\n[parameters: (206, 'https://techcrunch.com/sponsor/tether/tether-ai-is-building-the-stable-intelligence-layer-a-highly-efficient-platform-designed-to-scale-on-edgedevices-made-for-the-people/')]\n(Background on this error at: https://sqlalche.me/e/20/f405)"}
+Traceback (most recent call last):
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 526, in _prepare_and_execute
+    prepared_stmt, attributes = await adapt_connection._prepare(
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 773, in _prepare
+    prepared_stmt = await self._connection.prepare(
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\asyncpg\connection.py", line 638, in prepare
+    return await self._prepare(
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\asyncpg\connection.py", line 657, in _prepare
+    stmt = await self._get_statement(
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\asyncpg\connection.py", line 443, in _get_statement
+    statement = await self._protocol.prepare(
+  File "asyncpg/protocol/protocol.pyx", line 165, in prepare
+asyncpg.exceptions.UndefinedTableError: relation "chunks" does not exist
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
+    self.dialect.do_execute(
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\engine\default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 585, in execute
+    self._adapt_connection.await_(
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 132, in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 196, in greenlet_spawn
+    value = await result
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 563, in _prepare_and_execute
+    self._handle_exception(error)
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 513, in _handle_exception
+    self._adapt_connection._handle_exception(error)
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 797, in _handle_exception
+    raise translated_error from error
+sqlalchemy.dialects.postgresql.asyncpg.AsyncAdapt_asyncpg_dbapi.ProgrammingError: <class 'asyncpg.exceptions.UndefinedTableError'>: relation "chunks" does not exist
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\src\backend\pipeline.py", line 237, in run_pipeline_safe
+    await run_pipeline(session, run_id, run_date, topic_cfg, cache_dir)
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\src\backend\pipeline.py", line 185, in run_pipeline
+    await index_trend(session, trend_id, run_id, all_sources, cache_dir)
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\src\backend\rag\indexer.py", line 44, in index_trend
+    await session.execute(
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\ext\asyncio\session.py", line 449, in execute
+    result = await greenlet_spawn(
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 201, in greenlet_spawn
+    result = context.throw(*sys.exc_info())
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\orm\session.py", line 2351, in execute
+    return self._execute_internal(
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\orm\session.py", line 2249, in _execute_internal
+    result: Result[Any] = compile_state_cls.orm_execute_statement(
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\orm\bulk_persistence.py", line 2033, in orm_execute_statement
+    return super().orm_execute_statement(
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\orm\context.py", line 306, in orm_execute_statement
+    result = conn.execute(
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\engine\base.py", line 1419, in execute
+    return meth(
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\sql\elements.py", line 527, in _execute_on_connection
+    return connection._execute_clauseelement(
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\engine\base.py", line 1641, in _execute_clauseelement
+    ret = self._execute_context(
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\engine\base.py", line 1846, in _execute_context
+    return self._exec_single_context(
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\engine\base.py", line 1986, in _exec_single_context
+    self._handle_dbapi_exception(
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\engine\base.py", line 2363, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
+    self.dialect.do_execute(
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\engine\default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 585, in execute
+    self._adapt_connection.await_(
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 132, in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 196, in greenlet_spawn
+    value = await result
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 563, in _prepare_and_execute
+    self._handle_exception(error)
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 513, in _handle_exception
+    self._adapt_connection._handle_exception(error)
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 797, in _handle_exception
+    raise translated_error from error
+sqlalchemy.exc.ProgrammingError: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedTableError'>: relation "chunks" does not exist
+[SQL: DELETE FROM chunks WHERE chunks.trend_id = $1::BIGINT AND chunks.source_url = $2::VARCHAR]
+[parameters: (206, 'https://techcrunch.com/sponsor/tether/tether-ai-is-building-the-stable-intelligence-layer-a-highly-efficient-platform-designed-to-scale-on-edgedevices-made-for-the-people/')]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+Task exception was never retrieved
+future: <Task finished name='Task-5' coro=<_scheduled_run() done, defined at C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\src\backend\api\main.py:107> exception=DBAPIError("(sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.InFailedSQLTransactionError'>: current transaction is aborted, commands ignored until end of transaction block")>
+Traceback (most recent call last):
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 526, in _prepare_and_execute
+    prepared_stmt, attributes = await adapt_connection._prepare(
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 773, in _prepare
+    prepared_stmt = await self._connection.prepare(
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\asyncpg\connection.py", line 638, in prepare
+    return await self._prepare(
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\asyncpg\connection.py", line 657, in _prepare
+    stmt = await self._get_statement(
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\asyncpg\connection.py", line 443, in _get_statement
+    statement = await self._protocol.prepare(
+  File "asyncpg/protocol/protocol.pyx", line 165, in prepare
+asyncpg.exceptions.InFailedSQLTransactionError: current transaction is aborted, commands ignored until end of transaction block
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
+    self.dialect.do_execute(
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\engine\default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 585, in execute
+    self._adapt_connection.await_(
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 132, in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 196, in greenlet_spawn
+    value = await result
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 563, in _prepare_and_execute
+    self._handle_exception(error)
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 513, in _handle_exception
+    self._adapt_connection._handle_exception(error)
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 797, in _handle_exception
+    raise translated_error from error
+sqlalchemy.dialects.postgresql.asyncpg.AsyncAdapt_asyncpg_dbapi.Error: <class 'asyncpg.exceptions.InFailedSQLTransactionError'>: current transaction is aborted, commands ignored until end of transaction block
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\src\backend\api\main.py", line 123, in _scheduled_run
+    await run_pipeline_safe(session, run_id, today, topic_cfg, settings.cache_dir)
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\src\backend\pipeline.py", line 244, in run_pipeline_safe
+    await update_run_state(session, run_id, "failed", 0, 0, f"INTERNAL:{exc}")
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\engine\base.py", line 1986, in _exec_single_context
+    self._handle_dbapi_exception(
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\engine\base.py", line 2363, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
+    self.dialect.do_execute(
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\engine\default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 585, in execute
+    self._adapt_connection.await_(
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 132, in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 196, in greenlet_spawn
+    value = await result
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 563, in _prepare_and_execute
+    self._handle_exception(error)
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 513, in _handle_exception
+    self._adapt_connection._handle_exception(error)
+  File "C:\Users\lenovo\Documents\GitHub\linkedin-agent\backend\venv\lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 797, in _handle_exception
+    raise translated_error from error
+sqlalchemy.exc.DBAPIError: (sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.InFailedSQLTransactionError'>: current transaction is aborted, commands ignored until end of transaction block
+[SQL: UPDATE runs SET state=$1::VARCHAR, finished_at=$2::TIMESTAMP WITH TIME ZONE, trend_count=$3::INTEGER, warnings=$4::INTEGER, last_error=$5::VARCHAR WHERE runs.run_id = $6::VARCHAR]
+[parameters: ('failed', datetime.datetime(2026, 5, 4, 10, 37, 19, 551741, tzinfo=datetime.timezone.utc), 0, 0, 'INTERNAL:(sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class \'asyncpg.exceptions.UndefinedTableError\'>: relation "chunks" does not exi ... (211 characters truncated) ... r-a-highly-efficient-platform-designed-to-scale-on-edgedevices-made-for-the-people/\')]\n(Background on this error at: https://sqlalche.me/e/20/f405)', '47846553-981e-451a-a0d9-7faf497016d8')]
+(Background on this error at: https://sqlalche.me/e/20/dbapi)
