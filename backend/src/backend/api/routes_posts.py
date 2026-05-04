@@ -14,19 +14,25 @@ from ..logging_setup import get_logger
 from ..storage import (
     add_style_sample,
     create_generated_post,
+    delete_generated_post,
     get_generated_post,
     get_linkedin_account,
     get_style_samples_for_few_shot,
     get_trend_by_slug,
     get_trends_for_run,
+    list_all_generated_posts,
     list_chat_messages,
+    list_chat_messages_by_slug,
     list_generated_posts,
     list_insights,
+    list_insights_by_slug,
     mark_post_published,
     update_generated_post_content,
 )
 from ..style.profile import get_profile_text, refresh_profile_if_stale
 from .schemas import (
+    DeletePostOut,
+    GeneratedPostListItem,
     GeneratedPostOut,
     GeneratedPostPatchIn,
     GeneratePostIn,
@@ -52,12 +58,42 @@ def _post_to_out(p: dict) -> GeneratedPostOut:
 
 
 async def _load_context(session: AsyncSession, trend, run_id: str, slug: str) -> tuple[list[dict], list[dict], str, list[str]]:
-    """Fetch chat history, insights, style profile and samples for a trend."""
-    chat_history = await list_chat_messages(session, run_id=run_id, slug=slug, limit=200)
-    insights = await list_insights(session, run_id=run_id, slug=slug)
+    """Fetch full context for post generation.
+
+    - Chat messages and insights across ALL runs for this slug (not just the current
+      run), so every conversation the user has ever had about this topic contributes.
+    - Style profile is read as-is (refresh runs as a background task after generation
+      so it doesn't add an extra LLM call to the hot path and cause timeouts).
+    - 15 style samples for a richer voice model.
+    """
+    chat_history = await list_chat_messages_by_slug(session, slug, limit=400)
+    insights = await list_insights_by_slug(session, slug, limit=200)
     style_profile = await get_profile_text(session)
-    style_samples = await get_style_samples_for_few_shot(session, k=5)
+    style_samples = await get_style_samples_for_few_shot(session, k=15)
     return chat_history, insights, style_profile, style_samples
+
+
+# ── List all posts (library view) — must be registered before parameterized routes ──
+
+@router.get("/posts/all", response_model=list[GeneratedPostListItem])
+async def list_posts_all(kind: str, session: SessionDep, limit: int = 100) -> list[GeneratedPostListItem]:
+    if kind not in {"linkedin", "blog"}:
+        raise HTTPException(status_code=400, detail="kind must be 'linkedin' or 'blog'.")
+    effective_limit = min(limit, 200)
+    try:
+        rows = await list_all_generated_posts(session, kind=kind, limit=effective_limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    log.info("posts_library_listed", kind=kind, limit=effective_limit, count=len(rows))
+    return [GeneratedPostListItem(**r) for r in rows]
+
+
+@router.get("/posts/by-id/{post_id}", response_model=GeneratedPostOut)
+async def get_post_by_id(post_id: int, session: SessionDep) -> GeneratedPostOut:
+    post = await get_generated_post(session, post_id)
+    if post is None:
+        raise HTTPException(status_code=404, detail="Post not found.")
+    return _post_to_out(post)
 
 
 # ── Daily trend posts ─────────────────────────────────────────────────────────
@@ -92,6 +128,14 @@ async def generate_daily_linkedin(
     )
     bg.add_task(_bg_refresh_profile, trend.run_id)
     post = await get_generated_post(session, post_id)
+    log.info(
+        "post_generated_saved",
+        kind="linkedin",
+        post_id=post_id,
+        run_id=trend.run_id,
+        run_date=run_date.isoformat(),
+        slug=slug,
+    )
     return _post_to_out(post)
 
 
@@ -118,6 +162,14 @@ async def generate_daily_blog(
         content, result["tags"],
     )
     post = await get_generated_post(session, post_id)
+    log.info(
+        "post_generated_saved",
+        kind="blog",
+        post_id=post_id,
+        run_id=trend.run_id,
+        run_date=run_date.isoformat(),
+        slug=slug,
+    )
     return _post_to_out(post)
 
 
@@ -152,6 +204,14 @@ async def generate_run_linkedin(
     )
     bg.add_task(_bg_refresh_profile, run_id)
     post = await get_generated_post(session, post_id)
+    log.info(
+        "post_generated_saved",
+        kind="linkedin",
+        post_id=post_id,
+        run_id=run_id,
+        run_date=trend.run_date.isoformat(),
+        slug=slug,
+    )
     return _post_to_out(post)
 
 
@@ -178,6 +238,14 @@ async def generate_run_blog(
         content, result["tags"],
     )
     post = await get_generated_post(session, post_id)
+    log.info(
+        "post_generated_saved",
+        kind="blog",
+        post_id=post_id,
+        run_id=run_id,
+        run_date=trend.run_date.isoformat(),
+        slug=slug,
+    )
     return _post_to_out(post)
 
 
@@ -193,6 +261,15 @@ async def patch_post(post_id: int, body: GeneratedPostPatchIn, session: SessionD
     await add_style_sample(session, "post_edit", body.content_markdown, source_ref=post_id)
     updated = await get_generated_post(session, post_id)
     return _post_to_out(updated)
+
+
+@router.delete("/posts/{post_id}", response_model=DeletePostOut)
+async def delete_post(post_id: int, session: SessionDep) -> DeletePostOut:
+    deleted = await delete_generated_post(session, post_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Post not found.")
+    log.info("post_deleted", post_id=post_id)
+    return DeletePostOut(deleted=True)
 
 
 @router.post("/posts/{post_id}/publish", response_model=PublishResponseOut)

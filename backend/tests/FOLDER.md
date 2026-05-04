@@ -27,9 +27,17 @@ pytest -x                     # stop on first failure
 ```
 
 ## Last Session Changes
-_No changes recorded yet. Run `/end` at session close to record changes._
+**Session date:** 2026-05-02
+
+**Changes made:**
+- `test_dedup.py` — fully rewritten. Old tests called `compute_fingerprint(headline, sources)` with two args. `compute_fingerprint` is now headline-only (no `sources` param), so all old tests broke. New tests: `test_fingerprint_same_headline` (stability), `test_fingerprint_different_headlines` (sensitivity), `test_fingerprint_case_and_punctuation_insensitive` (normalization), plus the two `deduplicate_urls` tests (unchanged logic, preserved).
+
+**Reason:** `compute_fingerprint` signature changed this session — the `sources: list[Source]` argument was removed because the fingerprint was being computed from all run sources (not trend-specific sources), making cross-day dedup effectively non-functional. Headline-only fingerprint is now stable across runs.
+
+**Outcome:** Tests updated and passing. The old `test_fingerprint_utm_stripped` and `test_fingerprint_order_independent` tests were removed since UTM stripping and source ordering are no longer part of the fingerprint.
 
 ## Change Log
 | Date | File(s) Changed | Summary |
 |---|---|---|
+| 2026-05-02 | `test_dedup.py` | Updated for headline-only compute_fingerprint signature; removed source-based test cases |
 | — | — | Initial documentation created |

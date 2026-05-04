@@ -15,7 +15,7 @@ from ..storage import (
 
 log = get_logger(__name__)
 
-_REFRESH_GROWTH_RATIO = 1.20  # refresh when sample count grows 20%
+_REFRESH_GROWTH_RATIO = 1.05  # refresh when sample count grows 5% (keep profile fresh)
 _MIN_SAMPLES_TO_PROFILE = 3   # don't profile until we have at least 3 samples
 
 
