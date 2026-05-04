@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
@@ -45,7 +46,8 @@ async def index_trend(
             delete(Chunk).where(Chunk.trend_id == trend_id, Chunk.source_url == source.url)
         )
 
-        vectors = embed_batch(texts)
+        loop = asyncio.get_event_loop()
+        vectors = await loop.run_in_executor(None, embed_batch, texts)
         for idx, (text, vec) in enumerate(zip(texts, vectors)):
             all_chunks.append(Chunk(
                 trend_id=trend_id,

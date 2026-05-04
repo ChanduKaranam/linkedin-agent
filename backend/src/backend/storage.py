@@ -2,11 +2,15 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
-from sqlalchemy import and_, delete, func, select, update
+from sqlalchemy import and_, delete, func, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db_models import ChatMessage, GeneratedPost, Insight, LinkedInAccount, Run, StyleProfile, StyleSample, Trend
+from .logging_setup import get_logger
 from .models import PersistedTrend, RunState, Source
+
+log = get_logger(__name__)
+_POST_KINDS = {"linkedin", "blog"}
 
 
 # ── DB init / migration ───────────────────────────────────────────────────────
@@ -236,6 +240,14 @@ async def fingerprint_exists_in_window(
     return row is not None
 
 
+async def get_recent_headlines(session: AsyncSession, window_days: int) -> list[str]:
+    rows = (await session.execute(
+        select(Trend.headline)
+        .where(Trend.run_date >= func.current_date() - window_days)
+    )).scalars().all()
+    return list(rows)
+
+
 async def unique_slug(session: AsyncSession, headline: str, run_date: date) -> str:
     from slugify import slugify
     base = slugify(headline)[:80]
@@ -363,16 +375,127 @@ async def list_insights(
     else:
         q = select(Insight).where(Insight.run_date == run_date, Insight.slug == slug)
     rows = (await session.execute(q.order_by(Insight.created_at))).scalars().all()
+    return [_orm_to_insight(r) for r in rows]
+
+
+async def list_all_insights(
+    session: AsyncSession,
+    limit: int = 300,
+) -> list[dict]:
+    rows = (
+        await session.execute(
+            select(Insight).order_by(Insight.created_at.desc()).limit(limit)
+        )
+    ).scalars().all()
+    if not rows:
+        return []
+
+    run_ids = list({r.run_id for r in rows})
+    run_rows = (
+        await session.execute(select(Run).where(Run.run_id.in_(run_ids)))
+    ).scalars().all()
+    run_map = {r.run_id: r for r in run_rows}
+
+    # Headline by (run_date, slug). If multiple matches exist, keep the first.
+    pairs = list({(r.run_date, r.slug) for r in rows})
+    trend_rows = (
+        await session.execute(
+            select(Trend.run_date, Trend.slug, Trend.headline).where(
+                tuple_(Trend.run_date, Trend.slug).in_(pairs)  # type: ignore[name-defined]
+            )
+        )
+    ).all()
+    headline_map: dict[tuple[date, str], str] = {}
+    for tr in trend_rows:
+        key = (tr.run_date, tr.slug)
+        if key not in headline_map:
+            headline_map[key] = tr.headline
+
+    out: list[dict] = []
+    for r in rows:
+        run = run_map.get(r.run_id)
+        run_kind = (run.kind if run else "daily")
+        context_kind = "search" if run_kind == "adhoc" else "trend"
+        out.append({
+            **_orm_to_insight(r),
+            "run_id": r.run_id,
+            "run_date": r.run_date.isoformat(),
+            "slug": r.slug,
+            "context_kind": context_kind,
+            "topic": run.topic if run else "",
+            "headline": headline_map.get((r.run_date, r.slug), r.slug.replace("-", " ").title()),
+        })
+    return out
+
+
+async def list_insights_by_slug(
+    session: AsyncSession,
+    slug: str,
+    limit: int = 200,
+) -> list[dict]:
+    """All insights for a slug across ALL runs — used for post generation context."""
+    q = (
+        select(Insight)
+        .where(Insight.slug == slug)
+        .order_by(Insight.created_at)
+        .limit(limit)
+    )
+    rows = (await session.execute(q)).scalars().all()
+    return [_orm_to_insight(r) for r in rows]
+
+
+async def list_chat_messages_by_slug(
+    session: AsyncSession,
+    slug: str,
+    limit: int = 400,
+) -> list[dict]:
+    """All chat messages for a slug across ALL runs — captures the full conversation history."""
+    q = (
+        select(ChatMessage)
+        .where(ChatMessage.slug == slug)
+        .order_by(ChatMessage.created_at)
+        .limit(limit)
+    )
+    rows = (await session.execute(q)).scalars().all()
     return [
         {
             "id": r.id,
-            "user_perspective": r.user_perspective,
-            "summary": r.summary,
-            "tags": r.tags_json,
+            "role": r.role,
+            "content": r.content,
+            "citations": r.citations_json,
+            "used_web": r.used_web,
             "created_at": r.created_at.isoformat(),
         }
         for r in rows
     ]
+
+
+async def delete_chat_messages(
+    session: AsyncSession,
+    run_date: date | None = None,
+    run_id: str | None = None,
+    slug: str | None = None,
+) -> int:
+    if run_id:
+        result = await session.execute(
+            delete(ChatMessage).where(ChatMessage.run_id == run_id, ChatMessage.slug == slug)
+        )
+    else:
+        result = await session.execute(
+            delete(ChatMessage).where(ChatMessage.run_date == run_date, ChatMessage.slug == slug)
+        )
+    await session.commit()
+    return result.rowcount or 0
+
+
+def _orm_to_insight(r: "Insight") -> dict:  # type: ignore[name-defined]
+    return {
+        "id": r.id,
+        "user_perspective": r.user_perspective,
+        "summary": r.summary,
+        "tags": r.tags_json,
+        "created_at": r.created_at.isoformat(),
+    }
 
 
 # ── Style samples ──────────────────────────────────────────────────────────────
@@ -463,6 +586,11 @@ async def create_generated_post(
     content_markdown: str,
     tags: list[str],
 ) -> int:
+    if kind not in _POST_KINDS:
+        raise ValueError(f"Invalid generated post kind: {kind!r}")
+    if not slug or not slug.strip():
+        raise ValueError("slug must be a non-empty string")
+
     now = datetime.now(timezone.utc)
     post = GeneratedPost(
         kind=kind,
@@ -500,6 +628,58 @@ async def list_generated_posts(
     return [_orm_to_post(r) for r in rows]
 
 
+async def list_all_generated_posts(
+    session: AsyncSession,
+    kind: str,
+    limit: int = 100,
+) -> list[dict]:
+    """All posts of one kind with their Trend headline, newest-updated first.
+
+    Uses a plain SELECT on generated_posts (no join) then a single IN query to
+    batch-fetch headlines — avoids ORM/driver quirks with mixed entity+column selects.
+    """
+    if kind not in _POST_KINDS:
+        raise ValueError(f"Invalid generated post kind: {kind!r}")
+    if limit <= 0:
+        log.warning("list_all_generated_posts_invalid_limit", limit=limit)
+        return []
+
+    # Step 1: fetch the posts
+    post_rows = (
+        await session.execute(
+            select(GeneratedPost)
+            .where(GeneratedPost.kind == kind)
+            .order_by(GeneratedPost.updated_at.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+
+    if not post_rows:
+        return []
+
+    # Step 2: batch-fetch trend headlines for all distinct slugs
+    slugs = list({p.slug for p in post_rows})
+    trend_rows = (
+        await session.execute(
+            select(Trend.slug, Trend.headline).where(Trend.slug.in_(slugs))
+        )
+    ).all()
+    # Most recent headline per slug (there can be multiple runs per slug)
+    headline_map: dict[str, str] = {}
+    for row in trend_rows:
+        if row.slug not in headline_map:
+            headline_map[row.slug] = row.headline
+
+    # Step 3: assemble result — fall back to title-cased slug when no trend found
+    return [
+        {
+            **_orm_to_post(p),
+            "headline": headline_map.get(p.slug) or p.slug.replace("-", " ").title(),
+        }
+        for p in post_rows
+    ]
+
+
 async def update_generated_post_content(
     session: AsyncSession,
     post_id: int,
@@ -522,6 +702,14 @@ async def mark_post_published(session: AsyncSession, post_id: int, linkedin_post
         .values(status="published", linkedin_post_urn=linkedin_post_urn, updated_at=datetime.now(timezone.utc))
     )
     await session.commit()
+
+
+async def delete_generated_post(session: AsyncSession, post_id: int) -> bool:
+    result = await session.execute(
+        delete(GeneratedPost).where(GeneratedPost.id == post_id)
+    )
+    await session.commit()
+    return (result.rowcount or 0) > 0
 
 
 def _orm_to_post(row: GeneratedPost) -> dict:

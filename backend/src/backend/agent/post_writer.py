@@ -32,18 +32,58 @@ def _format_key_points(key_points: list[str]) -> str:
     return "\n".join(f"- {p}" for p in key_points)
 
 
+def _is_question(text: str) -> bool:
+    stripped = text.strip()
+    return stripped.endswith("?") or stripped.lower().startswith(("what ", "why ", "how ", "when ", "who ", "which ", "can ", "could ", "should ", "would ", "is ", "are ", "do ", "does "))
+
+
 def _format_user_content(chat_messages: list[dict], insights: list[dict]) -> str:
+    """
+    Organise the user's own words into three buckets:
+      1. Questions they asked (reveals curiosity / angles they care about)
+      2. Opinions and statements (their actual take — use these verbatim in the post)
+      3. Perspectives from saved insights
+
+    Only user-authored text is included — assistant responses are excluded.
+    """
+    user_msgs = [m["content"].strip() for m in chat_messages if m["role"] == "user" and len(m["content"].strip()) >= 15]
+
+    questions = [m for m in user_msgs if _is_question(m)]
+    statements = [m for m in user_msgs if not _is_question(m)]
+
     parts: list[str] = []
-    user_msgs = [m for m in chat_messages if m["role"] == "user"]
-    if user_msgs:
-        parts.append("### Chat messages (user's own words):")
-        for m in user_msgs:
-            parts.append(f'"{m["content"]}"')
+
+    if questions:
+        parts.append("### Questions this person asked (shows what they're curious about — let this shape the post's angle):")
+        for q in questions[:10]:
+            parts.append(f'  • "{q}"')
+
+    if statements:
+        parts.append("### Their opinions and observations (use these verbatim where possible — these ARE their voice):")
+        for s in statements[:15]:
+            parts.append(f'  • "{s}"')
+
     if insights:
-        parts.append("### Saved insights (user's explicit perspectives):")
-        for ins in insights:
-            parts.append(f'"{ins["user_perspective"]}"')
-    return "\n\n".join(parts) if parts else "(No user insights or chat messages yet.)"
+        parts.append("### Explicit insights they saved (highest signal — these are deliberately noted perspectives):")
+        for ins in insights[:20]:
+            text = ins["user_perspective"].strip()
+            if len(text) < 10:
+                continue
+            entry = f'  • "{text}"'
+            # If the insight has a meaningful summary (not an auto-generated label), include it
+            summary = (ins.get("summary") or "").strip()
+            if summary and not summary.startswith("Edited ") and len(summary) > 20:
+                entry += f'\n    → Context: "{summary[:200]}"'
+            parts.append(entry)
+        if ins.get("tags"):
+            tag_str = ", ".join(ins["tags"][:5])
+            parts[-1] += f"\n    Tags: {tag_str}"
+
+    if not parts:
+        return "(No chat messages or insights yet — write in the user's voice using the style profile and samples above.)"
+
+    header = "IMPORTANT: The content below represents this specific person's thinking about this topic. Build the post around their perspective, not a generic summary.\n"
+    return header + "\n\n".join(parts)
 
 
 async def generate_linkedin_post(

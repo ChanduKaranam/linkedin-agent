@@ -5,8 +5,6 @@ import re
 import unicodedata
 from pathlib import Path
 
-from .models import Source
-
 
 def _normalize(text: str) -> str:
     text = unicodedata.normalize("NFKD", text.lower())
@@ -26,11 +24,10 @@ def _canonical_url(url: str) -> str:
     return urllib.parse.urlunparse(clean).rstrip("/")
 
 
-def compute_fingerprint(headline: str, sources: list[Source]) -> str:
-    """Stable hash of normalized headline + sorted canonical URLs."""
-    canonical_urls = sorted(_canonical_url(s.url) for s in sources)
-    blob = _normalize(headline) + "|" + "|".join(canonical_urls)
-    return hashlib.sha1(blob.encode("utf-8")).hexdigest()
+def compute_fingerprint(headline: str) -> str:
+    """Stable hash of normalized headline. Headline-only so the same story
+    produces the same fingerprint across runs regardless of which sources were fetched."""
+    return hashlib.sha1(_normalize(headline).encode("utf-8")).hexdigest()
 
 
 def deduplicate_urls(urls: list[str]) -> list[str]:

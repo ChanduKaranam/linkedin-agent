@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -139,15 +140,28 @@ class InsightOut(BaseModel):
     created_at: str
 
 
+class InsightListItemOut(InsightOut):
+    run_id: str
+    run_date: str
+    slug: str
+    context_kind: Literal["trend", "search"]
+    topic: str
+    headline: str
+
+
+class ChatResetOut(BaseModel):
+    deleted: int
+
+
 class GeneratedPostOut(BaseModel):
     id: int
-    kind: str
+    kind: Literal["linkedin", "blog"]
     run_id: str
     run_date: str
     slug: str
     content_markdown: str
     tags: list[str]
-    status: str
+    status: Literal["draft", "edited", "published"]
     linkedin_post_urn: str | None
     created_at: str
     updated_at: str
@@ -171,3 +185,11 @@ class LinkedInStatusOut(BaseModel):
 class PublishResponseOut(BaseModel):
     post_urn: str
     status: str
+
+
+class GeneratedPostListItem(GeneratedPostOut):
+    headline: str = Field(min_length=1)
+
+
+class DeletePostOut(BaseModel):
+    deleted: bool

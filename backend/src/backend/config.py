@@ -22,6 +22,7 @@ class Limits(BaseModel):
     per_domain_rps: float = 0.5
     summarize_max_chars_per_source: int = 6000
     cluster_snippet_chars: int = 400
+    cache_ttl_hours: int = 18
 
 
 class Models(BaseModel):

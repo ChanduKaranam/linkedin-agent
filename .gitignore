@@ -1,23 +1,45 @@
-.claude/*
-# Python cache
+# ─── Python ───────────────────────────────────────────
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 
-# Virtual environments
+# ─── Virtual environments ─────────────────────────────
+.venv/
 venv/
 .env/
 .envrc/
 
-# Claude / AI tool folders
+# ─── Environment / secrets ────────────────────────────
+.env
+.env.local
+*.env.local
+!*.env.example
+!*.env.local.example
+
+# ─── Claude / AI tool folders ─────────────────────────
 .claude/
 
-# VS Code / IDE
+# ─── IDE ──────────────────────────────────────────────
 .vscode/
 .idea/
 
-# OS files
+# ─── OS ───────────────────────────────────────────────
 .DS_Store
 Thumbs.db
-data/cache/*
+
+# ─── Backend runtime data ─────────────────────────────
+backend/data/cache/
+backend/data/*.db
+backend/logs/
+
+# ─── Frontend build artifacts ─────────────────────────
+frontend/.next/
+frontend/tsconfig.tsbuildinfo
+
+# ─── Old / staging folders ────────────────────────────
+frontend_old/
+next-fe/
+
+# ─── Scratch / unrelated scripts ──────────────────────
+model.py

@@ -16,8 +16,10 @@ from ..logging_setup import get_logger
 from ..storage import (
     append_chat_message,
     create_insight,
+    delete_chat_messages,
     get_trend_by_slug,
     get_trends_for_run,
+    list_all_insights,
     list_chat_messages,
     list_insights,
 )
@@ -25,10 +27,12 @@ from ..style.collector import record_sample
 from ..style.profile import refresh_profile_if_stale
 from .schemas import (
     ChatMessageOut,
+    ChatResetOut,
     ChatPostIn,
     ChatPostOut,
     CitationOut,
     InsightIn,
+    InsightListItemOut,
     InsightOut,
 )
 
@@ -94,6 +98,16 @@ async def get_daily_chat(date: str, slug: str, session: SessionDep) -> list[Chat
     return [_row_to_msg_out(r) for r in rows]
 
 
+@router.delete("/chat/{date}/{slug}/messages", response_model=ChatResetOut)
+async def delete_daily_chat(date: str, slug: str, session: SessionDep) -> ChatResetOut:
+    try:
+        run_date = _date_parse(date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
+    deleted = await delete_chat_messages(session, run_date=run_date, slug=slug)
+    return ChatResetOut(deleted=deleted)
+
+
 @router.post("/chat/{date}/{slug}/messages", response_model=ChatPostOut)
 async def post_daily_chat(
     date: str, slug: str, body: ChatPostIn, request: Request, session: SessionDep, bg: BackgroundTasks
@@ -147,6 +161,12 @@ async def get_run_chat(run_id: str, slug: str, session: SessionDep) -> list[Chat
     return [_row_to_msg_out(r) for r in rows]
 
 
+@router.delete("/chat/runs/{run_id}/{slug}/messages", response_model=ChatResetOut)
+async def delete_run_chat(run_id: str, slug: str, session: SessionDep) -> ChatResetOut:
+    deleted = await delete_chat_messages(session, run_id=run_id, slug=slug)
+    return ChatResetOut(deleted=deleted)
+
+
 @router.post("/chat/runs/{run_id}/{slug}/messages", response_model=ChatPostOut)
 async def post_run_chat(
     run_id: str, slug: str, body: ChatPostIn, request: Request, session: SessionDep, bg: BackgroundTasks
@@ -189,6 +209,11 @@ async def post_run_chat(
 
 
 # ── Insights ────────────────────────────────────────────────────────────────────
+
+@router.get("/insights/all", response_model=list[InsightListItemOut])
+async def get_all_insights(session: SessionDep, limit: int = 300) -> list[InsightListItemOut]:
+    rows = await list_all_insights(session, limit=min(limit, 1000))
+    return [InsightListItemOut(**r) for r in rows]
 
 @router.get("/insights/{date}/{slug}", response_model=list[InsightOut])
 async def get_daily_insights(date: str, slug: str, session: SessionDep) -> list[InsightOut]:

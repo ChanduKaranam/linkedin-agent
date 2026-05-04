@@ -155,7 +155,7 @@ async def synthesize_daily(
     Replaces cluster + per-cluster summarize — no more 10 headlines for the same event."""
     from datetime import date as _date, timedelta
     today = run_date or _date.today()
-    cutoff = (today - timedelta(days=2)).isoformat()
+    cutoff = (today - timedelta(days=1)).isoformat()
     today_str = today.isoformat()
 
     combined = "\n\n---\n\n".join(content_parts)
