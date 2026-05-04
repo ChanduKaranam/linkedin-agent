@@ -22,6 +22,7 @@ class Limits(BaseModel):
     per_domain_rps: float = 0.5
     summarize_max_chars_per_source: int = 6000
     cluster_snippet_chars: int = 400
+    cache_ttl_hours: int = 18
 
 
 class Models(BaseModel):
@@ -84,9 +85,25 @@ class Settings(BaseSettings):
     enable_inprocess_scheduler: bool = False
     tz: str = "Asia/Kolkata"
     litellm_request_timeout: int = 60
+    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/trend_agent"
+    linkedin_client_id: str = ""
+    linkedin_client_secret: str = ""
+    linkedin_redirect_uri: str = "http://localhost:8000/admin/linkedin/callback"
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def normalize_database_url(cls, v: str) -> str:
+        """Ensure async SQLAlchemy URL and tolerate minor .env formatting issues."""
+        if v is None:
+            return v
+        url = str(v).strip()
+        if url.startswith("postgresql://"):
+            return "postgresql+asyncpg://" + url[len("postgresql://") :]
+        return url
 
     @property
     def db_path(self) -> Path:
+        # Kept for one-shot migration script only; not used at runtime.
         _DATA_DIR.mkdir(parents=True, exist_ok=True)
         return _DATA_DIR / "trends.db"
 

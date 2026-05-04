@@ -33,6 +33,7 @@ async def _ddgs_search(query: str, max_results: int) -> list[DiscoveredUrl]:
                     query,
                     max_results=max_results,
                     safesearch="moderate",
+                    timelimit="d",
                 )
             ),
         )
@@ -64,7 +65,7 @@ async def _tavily_search(query: str, max_results: int, api_key: str) -> list[Dis
                 max_results=max_results,
                 search_depth="basic",
                 topic="news",
-                days=2,
+                days=1,
             ),
         )
         return [

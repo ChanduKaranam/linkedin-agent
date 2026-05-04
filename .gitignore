@@ -1,38 +1,45 @@
-# Python
-.venv/
+# ─── Python ───────────────────────────────────────────
 __pycache__/
-*.py[cod]
-*.egg-info/
-dist/
-.eggs/
-*.egg
-.pytest_cache/
-.ruff_cache/
-.mypy_cache/
+*.pyc
+*.pyo
+*.pyd
 
-# Env / secrets
+# ─── Virtual environments ─────────────────────────────
+.venv/
+venv/
+.env/
+.envrc/
+
+# ─── Environment / secrets ────────────────────────────
 .env
-backend/.env
-/.claude
-.claude/.
+.env.local
+*.env.local
+!*.env.example
+!*.env.local.example
 
-# Data & logs (generated at runtime)
-backend/data/
-backend/logs/
+# ─── Claude / AI tool folders ─────────────────────────
+.claude/
 
-# Scrape cache
-backend/data/cache/
+# ─── IDE ──────────────────────────────────────────────
+.vscode/
+.idea/
 
-# Node / Next.js
-frontend/node_modules/
-frontend/.next/
-frontend/out/
-frontend/.env.local
-
-# OS
+# ─── OS ───────────────────────────────────────────────
 .DS_Store
 Thumbs.db
 
-# IDE
-.vscode/
-.idea/
+# ─── Backend runtime data ─────────────────────────────
+backend/data/cache/
+backend/data/*.db
+backend/logs/
+
+# ─── Frontend build artifacts ─────────────────────────
+frontend/.next/
+frontend/tsconfig.tsbuildinfo
+
+# ─── Old / staging folders ────────────────────────────
+frontend_old/
+next-fe/
+
+# ─── Scratch / unrelated scripts ──────────────────────
+model.py

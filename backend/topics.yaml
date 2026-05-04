@@ -1,7 +1,7 @@
 topic: AI & tech
 timezone: Asia/Kolkata
-schedule_hour: 6
-schedule_minute: 35
+schedule_hour: 4
+schedule_minute: 0
 queries:
 - AI model releases last 24 hours
 - artificial intelligence news today
@@ -20,7 +20,7 @@ models:
   cluster: mistral/mistral-large-latest
   summarize: mistral/mistral-large-latest
 dedup:
-  cross_day_window: 3
+  cross_day_window: 7
 blocked_domains:
 - pinterest.com
 - pinterest.*

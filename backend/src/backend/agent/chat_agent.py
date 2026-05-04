@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 
 import litellm
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..logging_setup import get_logger
 from ..models import PersistedTrend
+from ..rag.indexer import index_trend
+from ..rag.retriever import retrieve
 from .prompts import CHAT_SYSTEM
 from .tools.scrape import scrape_url
 from .tools.search import search_web
@@ -46,16 +48,26 @@ _TOOL_DEFS = [
 ]
 
 
-def _build_system_prompt(trend: PersistedTrend, cache_dir: Path, source_chars: int) -> str:
-    sources_text = ""
-    for source in trend.sources:
-        cache_file = cache_dir / f"{hashlib.md5(source.url.encode()).hexdigest()}.md"
-        if cache_file.exists():
-            try:
-                content = cache_file.read_text(encoding="utf-8", errors="replace")[:source_chars]
-                sources_text += f"\n\n### {source.title} ({source.domain})\nURL: {source.url}\n\n{content}"
-            except OSError:
-                pass
+async def _build_system_prompt(
+    trend: PersistedTrend,
+    user_query: str,
+    session: AsyncSession,
+) -> str:
+    """Retrieve the most relevant chunks for this query and build a focused system prompt."""
+    if trend.id is None:
+        sources_text = "(No indexed sources available — use web tools if needed.)"
+    else:
+        chunks = await retrieve(session, trend.id, user_query, k=6)
+        if chunks:
+            parts = []
+            for chunk in chunks:
+                parts.append(
+                    f"### {chunk.source_title} ({chunk.source_domain})\n"
+                    f"URL: {chunk.source_url}\n\n{chunk.text}"
+                )
+            sources_text = "\n\n".join(parts)
+        else:
+            sources_text = "(No relevant source excerpts found — use web tools if needed.)"
 
     key_points_text = "\n".join(f"- {p}" for p in trend.key_points)
     return CHAT_SYSTEM.format(
@@ -63,7 +75,7 @@ def _build_system_prompt(trend: PersistedTrend, cache_dir: Path, source_chars: i
         one_liner=trend.one_liner,
         key_points=key_points_text,
         detailed_markdown=trend.detailed_markdown,
-        sources_text=sources_text or "(No cached source content available — use web tools if needed.)",
+        sources_text=sources_text,
     )
 
 
@@ -72,15 +84,31 @@ async def _exec_web_search(query: str) -> list[dict]:
     return [{"url": r.url, "title": r.title, "snippet": r.snippet} for r in results]
 
 
-async def _exec_web_scrape(url: str, cache_dir: Path) -> dict:
+async def _exec_web_scrape(url: str, cache_dir: Path, trend: PersistedTrend, session: AsyncSession) -> dict:
     page = await scrape_url(url)
     if page is None:
         return {"url": url, "title": "", "markdown": "", "error": "Could not retrieve content."}
+
+    # Cache to disk
+    import hashlib
     cache_file = cache_dir / f"{hashlib.md5(url.encode()).hexdigest()}.md"
     try:
         cache_file.write_text(page.markdown, encoding="utf-8")
     except OSError:
         pass
+
+    # Index new page into chunks so follow-up retrieval benefits from it
+    if trend.id is not None:
+        from ..models import Source
+        import tldextract
+        ext = tldextract.extract(url)
+        domain = f"{ext.domain}.{ext.suffix}" if ext.suffix else ext.domain
+        source = Source(url=page.url, title=page.title or domain, domain=domain)
+        try:
+            await index_trend(session, trend.id, trend.run_id, [source], cache_dir)
+        except Exception as exc:
+            log.warning("chat_scrape_index_failed", url=url, error=str(exc))
+
     return {"url": page.url, "title": page.title, "markdown": page.markdown[:6000]}
 
 
@@ -91,10 +119,15 @@ async def answer(
     model_str: str,
     cache_dir: Path,
     max_tool_calls: int = 4,
+    session: AsyncSession | None = None,
+    # source_chars_per_doc kept for backwards compat but no longer used
     source_chars_per_doc: int = 6000,
 ) -> dict:
     """Run one chat turn. Returns {reply, citations, used_web}."""
-    system_prompt = _build_system_prompt(trend, cache_dir, source_chars_per_doc)
+    if session is None:
+        raise ValueError("session is required for hybrid RAG retrieval")
+
+    system_prompt = await _build_system_prompt(trend, user_message, session)
 
     messages: list[dict] = [{"role": "system", "content": system_prompt}]
     for m in history:
@@ -120,7 +153,6 @@ async def answer(
             log.info("chat_answer_complete", used_web=used_web, citations=len(citations))
             return {"reply": reply, "citations": citations, "used_web": used_web}
 
-        # Append assistant message with tool_calls
         assistant_entry: dict = {"role": "assistant", "content": msg.content or ""}
         assistant_entry["tool_calls"] = [
             {
@@ -147,7 +179,7 @@ async def answer(
                         citations.append({"url": r["url"], "title": r["title"], "snippet": r["snippet"]})
                 tool_content = json.dumps(result)
             elif fn == "web_scrape":
-                result = await _exec_web_scrape(args.get("url", ""), cache_dir)
+                result = await _exec_web_scrape(args.get("url", ""), cache_dir, trend, session)
                 used_web = True
                 url = result.get("url", "")
                 if url and not any(c["url"] == url for c in citations):
