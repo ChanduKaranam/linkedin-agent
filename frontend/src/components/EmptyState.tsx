@@ -1,5 +1,5 @@
 interface EmptyStateProps {
-  variant: 'unreachable' | 'no_run' | 'no_trends';
+  variant: 'unreachable' | 'no_run' | 'no_trends' | 'running';
   nextScheduled?: string;
 }
 
@@ -18,6 +18,10 @@ export default function EmptyState({ variant, nextScheduled }: EmptyStateProps) 
     no_trends: {
       title: "Today's scan found no trends",
       body: "The pipeline completed but couldn't cluster any trends. This can happen if sources were all blocked or too short. Try again tomorrow or check logs.",
+    },
+    running: {
+      title: 'Fetching and summarizing trends',
+      body: 'The pipeline is still running. Trends will appear automatically once the run is completed.',
     },
   };
 

@@ -94,6 +94,16 @@ async def get_run(session: AsyncSession, run_id: str) -> RunState | None:
     return _orm_to_run(row) if row else None
 
 
+async def get_latest_daily_run(session: AsyncSession) -> RunState | None:
+    row = (await session.execute(
+        select(Run)
+        .where(Run.kind == "daily")
+        .order_by(Run.run_date.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+    return _orm_to_run(row) if row else None
+
+
 async def get_latest_completed_run(session: AsyncSession) -> RunState | None:
     row = (await session.execute(
         select(Run)
@@ -763,4 +773,9 @@ async def upsert_linkedin_account(
             expires_at=expires_at,
             member_urn=member_urn,
         ))
+    await session.commit()
+
+
+async def clear_linkedin_account(session: AsyncSession) -> None:
+    await session.execute(delete(LinkedInAccount).where(LinkedInAccount.id == 1))
     await session.commit()

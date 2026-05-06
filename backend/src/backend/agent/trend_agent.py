@@ -73,9 +73,8 @@ async def _run_agent(agent: LlmAgent, user_prompt: str) -> Any:
             parts=[types.Part(text=user_prompt)],
         ),
     ):
-        if event.is_final_response() and event.content and event.content.parts:
+        if final_text is None and event.is_final_response() and event.content and event.content.parts:
             final_text = event.content.parts[0].text
-            break
 
     if final_text is None:
         raise RuntimeError("ADK agent produced no final response")

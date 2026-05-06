@@ -162,6 +162,30 @@ async function startServer() {
     proxy({ backendPath: `/posts/${req.params.postId}/publish`, timeoutMs: 20_000, req, res }));
 
   // -------------------------------------------------------------------------
+  // Slack
+  // -------------------------------------------------------------------------
+  app.get('/api/slack/channels/:channelId/messages', (req, res) => {
+    const qs = new URLSearchParams(req.query as Record<string, string>).toString();
+    const suffix = qs ? `?${qs}` : '';
+    return proxy({
+      backendPath: `/slack/channels/${req.params.channelId}/messages${suffix}`,
+      timeoutMs: 20_000,
+      req,
+      res,
+    });
+  });
+  app.post('/api/slack/chat', (req, res) =>
+    proxy({ backendPath: '/slack/chat', timeoutMs: 120_000, req, res }));
+  app.post('/api/slack/generate/linkedin', (req, res) =>
+    proxy({ backendPath: '/slack/generate/linkedin', timeoutMs: 120_000, req, res }));
+  app.post('/api/slack/generate/blog', (req, res) =>
+    proxy({ backendPath: '/slack/generate/blog', timeoutMs: 120_000, req, res }));
+  app.post('/api/slack/post', (req, res) =>
+    proxy({ backendPath: '/slack/post', timeoutMs: 30_000, req, res }));
+  app.post('/api/slack/publish/linkedin', (req, res) =>
+    proxy({ backendPath: '/slack/publish/linkedin', timeoutMs: 30_000, req, res }));
+
+  // -------------------------------------------------------------------------
   // Admin
   // -------------------------------------------------------------------------
   // GET reads the public schedule endpoint; POST writes to the debug-gated one.

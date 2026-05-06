@@ -40,6 +40,11 @@ export function BackendStatusProvider({ children }: { children: React.ReactNode 
 
       // Dates
       const dates: string[] = datesRes.ok ? await datesRes.json() : [];
+      if (health.pipeline_running) {
+        setBackendStatus('running');
+        setAvailableDates([]);
+        return;
+      }
       if (dates.length === 0) {
         setBackendStatus('no_run');
         setAvailableDates([]);
@@ -63,6 +68,10 @@ export function BackendStatusProvider({ children }: { children: React.ReactNode 
   }, []);
 
   useEffect(() => { bootstrap(); }, [bootstrap]);
+  useEffect(() => {
+    const id = window.setInterval(() => { void bootstrap(); }, 15000);
+    return () => window.clearInterval(id);
+  }, [bootstrap]);
 
   return (
     <BackendStatusContext.Provider value={{ backendStatus, schedule, availableDates, selectedDate, setSelectedDate, setSchedule, refresh: bootstrap }}>

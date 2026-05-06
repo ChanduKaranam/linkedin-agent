@@ -32,7 +32,7 @@ import uvicorn
 if __name__ == "__main__":
     reload = "--reload" in sys.argv
     uvicorn.run(
-        "backend.api.main:app",
+        "src.backend.api.main:app",
         host="127.0.0.1",
         port=8000,
         reload=reload,

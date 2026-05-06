@@ -9,6 +9,7 @@ import rehypeSanitize from 'rehype-sanitize';
 import { Copy, Download, Image, X, Send, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { GeneratedPost, LinkedInStatus, Insight } from '@/types';
+import { useToast } from '@/context/ToastContext';
 
 interface PostEditorProps {
   post: GeneratedPost;
@@ -87,6 +88,7 @@ export default function PostEditor({
   onDeleted,
   showPublish = true,
 }: PostEditorProps) {
+  const { pushToast } = useToast();
   const [editedContent, setEditedContent] = useState(post.content_markdown);
   const [editedTags, setEditedTags] = useState<string[]>([...post.tags]);
   const [tagInput, setTagInput] = useState('');
@@ -150,12 +152,17 @@ export default function PostEditor({
       if (!res.ok) {
         const err = await res.json().catch(() => ({})) as Record<string, unknown>;
         setError(String(err.detail ?? err.error ?? 'Generation failed. Please try again.'));
+        pushToast('Post generation failed.', 'error');
         return;
       }
       const updated: GeneratedPost = await res.json();
       onUpdated(updated);
       setRegenInstructions('');
-    } catch { setError('Network error. Is the backend running?'); }
+      pushToast('Post generated successfully.', 'success');
+    } catch {
+      setError('Network error. Is the backend running?');
+      pushToast('Post generation failed due to network error.', 'error');
+    }
     finally { setGenerating(false); }
   }
 
@@ -171,15 +178,20 @@ export default function PostEditor({
       if (!res.ok) {
         const err = await res.json().catch(() => ({})) as Record<string, unknown>;
         setError(String(err.detail ?? 'Failed to save edits.'));
+        pushToast('Saving post edits failed.', 'error');
         return;
       }
       const updated: GeneratedPost = await res.json();
       onUpdated(updated);
+      pushToast('Post edits saved.', 'success');
       // Note: the backend's PATCH handler already records the edited content as a
       // style sample (add_style_sample "post_edit"). We do NOT save it as an insight
       // here — post drafts are not "user perspectives about this topic" and would
       // confuse future generation by making the LLM copy its own previous output.
-    } catch { setError('Network error.'); }
+    } catch {
+      setError('Network error.');
+      pushToast('Saving post edits failed due to network error.', 'error');
+    }
     finally { setSaving(false); }
   }
 
@@ -191,11 +203,16 @@ export default function PostEditor({
       if (!res.ok) {
         const err = await res.json().catch(() => ({})) as Record<string, unknown>;
         setError(String(err.detail ?? 'Publish failed. Check your LinkedIn connection.'));
+        pushToast('LinkedIn publish failed.', 'error');
         return;
       }
       const result = await res.json() as { post_urn: string };
       onUpdated({ ...post, status: 'published', linkedin_post_urn: result.post_urn });
-    } catch { setError('Network error during publish.'); }
+      pushToast('Post published to LinkedIn.', 'success');
+    } catch {
+      setError('Network error during publish.');
+      pushToast('LinkedIn publish failed due to network error.', 'error');
+    }
     finally { setPublishing(false); }
   }
 
@@ -207,11 +224,14 @@ export default function PostEditor({
       if (!res.ok) {
         const err = await res.json().catch(() => ({})) as Record<string, unknown>;
         setError(String(err.detail ?? 'Failed to delete post.'));
+        pushToast('Deleting post failed.', 'error');
         return;
       }
       onDeleted?.(post.id);
+      pushToast('Post deleted.', 'success');
     } catch {
       setError('Network error while deleting.');
+      pushToast('Deleting post failed due to network error.', 'error');
     } finally {
       setDeleting(false);
       setConfirmDeleteOpen(false);
@@ -219,7 +239,11 @@ export default function PostEditor({
   }
 
   function handleCopy() {
-    navigator.clipboard.writeText(editedContent).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+    navigator.clipboard.writeText(editedContent).then(() => {
+      setCopied(true);
+      pushToast('Copied post content.', 'success');
+      setTimeout(() => setCopied(false), 2000);
+    });
   }
 
   function handleDownload() {
@@ -228,6 +252,7 @@ export default function PostEditor({
     const a = document.createElement('a');
     a.href = url; a.download = `${kind}-post-${post.slug}.md`; a.click();
     URL.revokeObjectURL(url);
+    pushToast('Downloaded markdown file.', 'success');
   }
 
   function addTag() {
@@ -398,11 +423,7 @@ export default function PostEditor({
               <Send size={12} />
               {publishing ? 'Publishing…' : 'Publish to LinkedIn'}
             </button>
-          ) : (
-            <a href="/api/admin/linkedin/authorize" className="btn-secondary py-2.5 px-6 text-[10px] border-[#0A66C2] text-[#0A66C2] hover:bg-blue-50">
-              Connect LinkedIn
-            </a>
-          )}
+          ) : null}
           {isDirty && <p className="text-[10px] text-on-surface-variant font-mono">Save edits before publishing.</p>}
         </div>
       )}

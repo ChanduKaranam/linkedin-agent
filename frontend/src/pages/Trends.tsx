@@ -166,6 +166,7 @@ export default function Trends() {
     const next = schedule ? `${String(schedule.hour).padStart(2, '0')}:${String(schedule.minute).padStart(2, '0')} ${tz}` : undefined;
     return <EmptyState variant="no_run" nextScheduled={next} />;
   }
+  if (!isTilicho && backendStatus === 'running') return <EmptyState variant="running" />;
   if (!isTilicho && backendStatus === 'no_trends') return <EmptyState variant="no_trends" />;
 
   if (isTilicho) {

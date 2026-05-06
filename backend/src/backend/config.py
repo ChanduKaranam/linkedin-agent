@@ -89,6 +89,9 @@ class Settings(BaseSettings):
     linkedin_client_id: str = ""
     linkedin_client_secret: str = ""
     linkedin_redirect_uri: str = "http://localhost:8000/admin/linkedin/callback"
+    frontend_base_url: str = "http://localhost:3000"
+    slack_bot_token: str = ""
+    slack_default_channel_id: str = ""
 
     @field_validator("database_url", mode="before")
     @classmethod
