@@ -99,6 +99,44 @@ export default function Searches() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlRunId]);
 
+  // Default hydration: on refresh without run_id, load the latest completed search result.
+  useEffect(() => {
+    if (isTilicho || urlRunId || mode === 'search' || activeRunId) return;
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const historyRes = await fetch('/api/search/history');
+        if (!historyRes.ok || cancelled) return;
+        const history = await historyRes.json() as Array<{
+          run_id: string;
+          topic: string;
+          state: SearchState;
+          started_at: string;
+        }>;
+        const latestCompleted = [...history]
+          .filter((item) => item.state === 'completed' || item.state === 'completed_with_warnings')
+          .sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime())[0];
+        if (!latestCompleted || cancelled) return;
+
+        const trendsRes = await fetch(`/api/search/runs/${latestCompleted.run_id}/trends`);
+        if (!trendsRes.ok || cancelled) return;
+        const trends = await trendsRes.json() as Array<{ slug: string; headline: string; one_liner: string; source_count: number }>;
+        if (cancelled || trends.length === 0) return;
+
+        await enterSearch(latestCompleted.run_id, latestCompleted.topic, trends);
+
+        const url = new URL(window.location.href);
+        url.searchParams.set('run_id', latestCompleted.run_id);
+        url.searchParams.set('q', latestCompleted.topic);
+        window.history.replaceState({}, '', url.toString());
+      } catch { /* ignore default hydration errors */ }
+    })();
+
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlRunId, mode, activeRunId]);
+
   if (isTilicho) {
     return (
       <div className="flex-1 flex overflow-hidden max-w-[1400px] mx-auto px-6 py-6 gap-6 relative">
@@ -168,6 +206,8 @@ export default function Searches() {
         <div
           className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
           onScroll={(e) => handlePaneScroll('right', e.currentTarget.scrollTop)}
+          onWheelCapture={(e) => e.stopPropagation()}
+          onTouchMoveCapture={(e) => e.stopPropagation()}
         >
           {mode === 'search' && searchBrief ? (
             <SearchResultView
