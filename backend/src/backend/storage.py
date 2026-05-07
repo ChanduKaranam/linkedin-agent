@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import secrets
 from datetime import date, datetime, timezone
 
 from sqlalchemy import and_, case, delete, func, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .db_models import ChatMessage, GeneratedPost, Insight, LinkedInAccount, Run, StyleProfile, StyleSample, Trend
+from .db_models import AuthSession, ChatMessage, Chunk, GeneratedPost, Insight, LinkedInAccount, Run, StyleProfile, StyleSample, Trend, User
 from .logging_setup import get_logger
 from .models import PersistedTrend, RunState, Source
 
@@ -615,6 +616,7 @@ async def create_generated_post(
     slug: str,
     content_markdown: str,
     tags: list[str],
+    headline: str = "",
 ) -> int:
     if kind not in _POST_KINDS:
         raise ValueError(f"Invalid generated post kind: {kind!r}")
@@ -627,6 +629,7 @@ async def create_generated_post(
         run_id=run_id,
         run_date=run_date,
         slug=slug,
+        headline=headline or slug.replace("-", " ").title(),
         content_markdown=content_markdown,
         tags_json=tags,
         status="draft",
@@ -663,10 +666,10 @@ async def list_all_generated_posts(
     kind: str,
     limit: int = 100,
 ) -> list[dict]:
-    """All posts of one kind with their Trend headline, newest-updated first.
+    """All posts of one kind with their stored headline, newest-updated first.
 
-    Uses a plain SELECT on generated_posts (no join) then a single IN query to
-    batch-fetch headlines — avoids ORM/driver quirks with mixed entity+column selects.
+    Reads headline directly from generated_posts — no join needed. Headlines are
+    snapshotted at creation time so they survive trend deletion (>15-day retention).
     """
     if kind not in _POST_KINDS:
         raise ValueError(f"Invalid generated post kind: {kind!r}")
@@ -674,7 +677,6 @@ async def list_all_generated_posts(
         log.warning("list_all_generated_posts_invalid_limit", limit=limit)
         return []
 
-    # Step 1: fetch the posts
     post_rows = (
         await session.execute(
             select(GeneratedPost)
@@ -684,30 +686,7 @@ async def list_all_generated_posts(
         )
     ).scalars().all()
 
-    if not post_rows:
-        return []
-
-    # Step 2: batch-fetch trend headlines for all distinct slugs
-    slugs = list({p.slug for p in post_rows})
-    trend_rows = (
-        await session.execute(
-            select(Trend.slug, Trend.headline).where(Trend.slug.in_(slugs))
-        )
-    ).all()
-    # Most recent headline per slug (there can be multiple runs per slug)
-    headline_map: dict[str, str] = {}
-    for row in trend_rows:
-        if row.slug not in headline_map:
-            headline_map[row.slug] = row.headline
-
-    # Step 3: assemble result — fall back to title-cased slug when no trend found
-    return [
-        {
-            **_orm_to_post(p),
-            "headline": headline_map.get(p.slug) or p.slug.replace("-", " ").title(),
-        }
-        for p in post_rows
-    ]
+    return [_orm_to_post(p) for p in post_rows]
 
 
 async def update_generated_post_content(
@@ -749,6 +728,7 @@ def _orm_to_post(row: GeneratedPost) -> dict:
         "run_id": row.run_id,
         "run_date": row.run_date.isoformat(),
         "slug": row.slug,
+        "headline": row.headline or row.slug.replace("-", " ").title(),
         "content_markdown": row.content_markdown,
         "tags": row.tags_json,
         "status": row.status,
@@ -803,4 +783,69 @@ async def upsert_linkedin_account(
 
 async def clear_linkedin_account(session: AsyncSession) -> None:
     await session.execute(delete(LinkedInAccount).where(LinkedInAccount.id == 1))
+    await session.commit()
+
+
+# ── Retention ──────────────────────────────────────────────────────────────────
+
+async def purge_data_older_than(session: AsyncSession, cutoff_date: date) -> dict[str, int]:
+    """Delete all runs/trends/chunks/chat_messages/insights older than cutoff_date.
+
+    Generated posts, style samples, and the style profile are intentionally left
+    untouched — they must survive the 15-day trend window.
+
+    Returns per-table deleted row counts for logging.
+    """
+    chat_result = await session.execute(
+        delete(ChatMessage).where(ChatMessage.run_date < cutoff_date)
+    )
+    insight_result = await session.execute(
+        delete(Insight).where(Insight.run_date < cutoff_date)
+    )
+    # Deleting a Run cascades to its Trend rows (ondelete=CASCADE), and each Trend
+    # cascades to its Chunk rows — so we only need to delete the Run.
+    run_result = await session.execute(
+        delete(Run).where(Run.run_date < cutoff_date)
+    )
+    await session.commit()
+    return {
+        "chat_messages": chat_result.rowcount or 0,
+        "insights": insight_result.rowcount or 0,
+        "runs": run_result.rowcount or 0,
+    }
+
+
+# ── Auth ────────────────────────────────────────────────────────────────────────
+
+async def get_user_by_username(session: AsyncSession, username: str) -> User | None:
+    return (await session.execute(select(User).where(User.username == username))).scalar_one_or_none()
+
+
+async def create_session(session: AsyncSession, username: str) -> str:
+    token = secrets.token_urlsafe(32)
+    now = datetime.now(timezone.utc)
+    session.add(AuthSession(token=token, username=username, created_at=now, last_seen_at=now))
+    await session.commit()
+    return token
+
+
+async def get_session_user(session: AsyncSession, token: str) -> User | None:
+    row = (
+        await session.execute(
+            select(AuthSession).where(AuthSession.token == token)
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        return None
+    await session.execute(
+        update(AuthSession)
+        .where(AuthSession.token == token)
+        .values(last_seen_at=datetime.now(timezone.utc))
+    )
+    await session.commit()
+    return await get_user_by_username(session, row.username)
+
+
+async def delete_session(session: AsyncSession, token: str) -> None:
+    await session.execute(delete(AuthSession).where(AuthSession.token == token))
     await session.commit()

@@ -37,6 +37,10 @@ async function proxy({ method, backendPath, timeoutMs, forwardIp, req, res }: Pr
     headers['X-Forwarded-For'] = ip;
   }
 
+  if (req.headers.cookie) {
+    headers['Cookie'] = req.headers.cookie;
+  }
+
   try {
     const body = ['POST', 'PUT', 'PATCH'].includes(m) && req.body
       ? JSON.stringify(req.body)
@@ -48,6 +52,11 @@ async function proxy({ method, backendPath, timeoutMs, forwardIp, req, res }: Pr
       body,
       signal: AbortSignal.timeout(timeoutMs),
     });
+
+    const setCookie = response.headers.get('set-cookie');
+    if (setCookie) {
+      res.setHeader('set-cookie', setCookie);
+    }
 
     if (!response.ok) {
       const text = await response.text().catch(() => '');
@@ -224,6 +233,13 @@ async function startServer() {
     proxy({ backendPath: '/slack/post', timeoutMs: 30_000, req, res }));
   app.post('/api/slack/publish/linkedin', (req, res) =>
     proxy({ backendPath: '/slack/publish/linkedin', timeoutMs: 30_000, req, res }));
+
+  // -------------------------------------------------------------------------
+  // Auth
+  // -------------------------------------------------------------------------
+  app.post('/api/auth/login', (req, res) => proxy({ backendPath: '/auth/login', timeoutMs: 10_000, req, res }));
+  app.post('/api/auth/logout', (req, res) => proxy({ backendPath: '/auth/logout', timeoutMs: 5_000, req, res }));
+  app.get('/api/auth/me', (req, res) => proxy({ backendPath: '/auth/me', timeoutMs: 5_000, req, res }));
 
   // -------------------------------------------------------------------------
   // Admin

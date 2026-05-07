@@ -92,6 +92,9 @@ class Settings(BaseSettings):
     frontend_base_url: str = "http://localhost:3000"
     slack_bot_token: str = ""
     slack_default_channel_id: str = ""
+    session_cookie_name: str = "session_id"
+    session_cookie_secure: bool = False
+    session_cookie_samesite: str = "lax"
 
     @field_validator("database_url", mode="before")
     @classmethod
