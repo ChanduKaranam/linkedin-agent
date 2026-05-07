@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from typing import Annotated
 
 import yaml
@@ -92,16 +93,31 @@ class Settings(BaseSettings):
     frontend_base_url: str = "http://localhost:3000"
     slack_bot_token: str = ""
     slack_default_channel_id: str = ""
+    session_cookie_name: str = "session_id"
+    session_cookie_secure: bool = False
+    session_cookie_samesite: str = "lax"
 
     @field_validator("database_url", mode="before")
     @classmethod
     def normalize_database_url(cls, v: str) -> str:
-        """Ensure async SQLAlchemy URL and tolerate minor .env formatting issues."""
+        """Ensure async SQLAlchemy URL and tolerate provider-specific URL params."""
         if v is None:
             return v
         url = str(v).strip()
         if url.startswith("postgresql://"):
-            return "postgresql+asyncpg://" + url[len("postgresql://") :]
+            url = "postgresql+asyncpg://" + url[len("postgresql://") :]
+
+
+        split = urlsplit(url)
+        if split.query:
+            params = parse_qsl(split.query, keep_blank_values=True)
+            rewritten: list[tuple[str, str]] = []
+            for key, value in params:
+                if key.lower() == "sslmode" and not any(k.lower() == "ssl" for k, _ in params):
+                    rewritten.append(("ssl", value or "require"))
+                else:
+                    rewritten.append((key, value))
+            url = urlunsplit((split.scheme, split.netloc, split.path, urlencode(rewritten), split.fragment))
         return url
 
     @property

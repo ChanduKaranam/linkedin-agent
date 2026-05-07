@@ -20,15 +20,17 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from ..config import get_settings, get_topic_config
 from ..db import _get_factory, dispose_engine
 from ..logging_setup import get_logger, setup_logging
 from ..pipeline import run_pipeline_safe
-from ..storage import create_run, get_stale_runs, init_db, run_exists_for_date, update_run_state
+from ..storage import create_run, get_stale_runs, init_db, purge_data_older_than, run_exists_for_date, update_run_state
+from .deps_auth import require_user
 from .routes_admin import router as admin_router
+from .routes_auth import router as auth_router
 from .routes_chat import router as chat_router
 from .routes_posts import router as posts_router
 from .routes_search import router as search_router
@@ -40,6 +42,7 @@ log = get_logger(__name__)
 _active_scheduler = None
 _run_lock = asyncio.Lock()  # prevents concurrent daily runs (catch-up + APScheduler race)
 _STALE_RUN_TIMEOUT_HOURS = 2  # runs stuck in-progress longer than this are auto-failed
+_RETENTION_DAYS = 15  # keep this many days of daily trend data; older data is purged
 
 
 async def _cleanup_stale_runs() -> None:
@@ -58,6 +61,28 @@ async def _cleanup_stale_runs() -> None:
                 log.warning("stale_run_timed_out", run_id=run.run_id, state=run.state, started_at=run.started_at)
 
 
+async def _purge_old_data() -> None:
+    """Delete runs/trends/chunks/chat_messages/insights older than _RETENTION_DAYS days.
+
+    Generated posts, style samples, and the style profile are never purged here —
+    they outlive the trend window by design.
+    """
+    import pytz
+    from datetime import timedelta
+    topic_cfg = get_topic_config()
+    tz = pytz.timezone(topic_cfg.timezone)
+    today_local = datetime.now(tz).date()
+    cutoff = today_local - timedelta(days=_RETENTION_DAYS)
+    async with _get_factory()() as session:
+        counts = await purge_data_older_than(session, cutoff)
+    log.info(
+        "data_retention_purge",
+        cutoff=cutoff.isoformat(),
+        retention_days=_RETENTION_DAYS,
+        **counts,
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _active_scheduler
@@ -65,6 +90,12 @@ async def lifespan(app: FastAPI):
     setup_logging(settings.logs_dir)
 
     await init_db()
+
+    # Purge trend data older than retention window on every startup (catch-up for downtime)
+    try:
+        await _purge_old_data()
+    except Exception as exc:
+        log.warning("startup_retention_purge_failed", error=str(exc))
 
     # Mark stale in-progress runs from a previous crash
     async with _get_factory()() as session:
@@ -97,6 +128,17 @@ async def lifespan(app: FastAPI):
             "interval",
             minutes=30,
             id="stale_run_cleanup",
+            replace_existing=True,
+        )
+        # Purge trend data older than _RETENTION_DAYS — runs 1 hour before daily pipeline
+        scheduler.add_job(
+            _purge_old_data,
+            CronTrigger(
+                hour=max(topic_cfg.schedule_hour - 1, 0),
+                minute=topic_cfg.schedule_minute,
+                timezone=topic_cfg.timezone,
+            ),
+            id="data_retention",
             replace_existing=True,
         )
         scheduler.start()
@@ -171,13 +213,17 @@ app.add_middleware(
         "http://localhost:3001",
         "http://127.0.0.1:3001",
     ],
-    allow_methods=["GET", "POST", "PUT", "PATCH"],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
-app.include_router(trends_router)
-app.include_router(admin_router)
-app.include_router(search_router)
-app.include_router(chat_router)
-app.include_router(posts_router)
-app.include_router(slack_router)
+_protected = {"dependencies": [Depends(require_user)]}
+
+app.include_router(auth_router)
+app.include_router(trends_router, **_protected)
+app.include_router(admin_router, **_protected)
+app.include_router(search_router, **_protected)
+app.include_router(chat_router, **_protected)
+app.include_router(posts_router, **_protected)
+app.include_router(slack_router, **_protected)
