@@ -132,9 +132,9 @@ export default function Navbar() {
               <span className={cn('px-2 py-1 border', liStatus?.connected ? 'border-green-300 bg-green-50 text-green-800' : 'border-outline-variant bg-surface-container-low text-on-surface-variant')}>
                 {liStatus?.connected ? 'CONNECTED' : 'NOT CONNECTED'}
               </span>
-              {liStatus?.connected && (liStatus.member_name || liStatus.member_urn) && (
-                <span className="text-on-surface-variant max-w-[220px] truncate" title={liStatus.member_name ?? liStatus.member_urn ?? undefined}>
-                  {liStatus.member_name ?? liStatus.member_urn}
+              {liStatus?.connected && (
+                <span className="text-on-surface-variant max-w-[220px] truncate" title={liStatus.member_name ?? undefined}>
+                  {liStatus.member_name ?? 'LinkedIn Account'}
                 </span>
               )}
             </div>

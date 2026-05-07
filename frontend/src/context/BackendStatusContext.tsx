@@ -38,13 +38,24 @@ export function BackendStatusProvider({ children }: { children: React.ReactNode 
         return;
       }
 
-      // Dates
+      // Dates (only completed runs are returned by the API)
       const dates: string[] = datesRes.ok ? await datesRes.json() : [];
+
       if (health.pipeline_running) {
         setBackendStatus('running');
-        setAvailableDates([]);
+        // Still populate previous completed-run dates so the user can browse history
+        setAvailableDates(dates);
+        if (dates.length > 0) {
+          const urlDate = new URLSearchParams(window.location.search).get('d');
+          setSelectedDate(urlDate && dates.includes(urlDate) ? urlDate : dates[0]);
+        }
+        if (scheduleRes.ok) {
+          const s: ScheduleConfig = await scheduleRes.json();
+          setSchedule(s);
+        }
         return;
       }
+
       if (dates.length === 0) {
         setBackendStatus('no_run');
         setAvailableDates([]);
@@ -68,10 +79,13 @@ export function BackendStatusProvider({ children }: { children: React.ReactNode 
   }, []);
 
   useEffect(() => { bootstrap(); }, [bootstrap]);
+  // Poll every 5s while the pipeline is running so completion is detected quickly.
+  // Fall back to 15s when idle to reduce unnecessary requests.
   useEffect(() => {
-    const id = window.setInterval(() => { void bootstrap(); }, 15000);
+    const interval = backendStatus === 'running' ? 5000 : 15000;
+    const id = window.setInterval(() => { void bootstrap(); }, interval);
     return () => window.clearInterval(id);
-  }, [bootstrap]);
+  }, [bootstrap, backendStatus]);
 
   return (
     <BackendStatusContext.Provider value={{ backendStatus, schedule, availableDates, selectedDate, setSelectedDate, setSchedule, refresh: bootstrap }}>

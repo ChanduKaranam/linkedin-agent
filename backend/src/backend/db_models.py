@@ -153,6 +153,7 @@ class LinkedInAccount(Base):
     refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     member_urn: Mapped[str] = mapped_column(String, nullable=False)
+    member_name: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class Chunk(Base):

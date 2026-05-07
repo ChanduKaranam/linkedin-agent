@@ -10,12 +10,22 @@ interface ChatPanelProps {
   insightsApiBase: string;
 }
 
+type SseEvent =
+  | { type: 'user_message'; message: ChatMessage }
+  | { type: 'token'; text: string }
+  | { type: 'assistant_message'; message: ChatMessage }
+  | { type: 'tool_call'; name: string }
+  | { type: 'error'; detail: string };
+
+const STREAMING_ID = -9999;
+
 export default function ChatPanel({ chatApiBase, insightsApiBase }: ChatPanelProps) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [insights, setInsights] = useState<Insight[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [toolStatus, setToolStatus] = useState<string | null>(null);
   const [showInsights, setShowInsights] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -40,31 +50,95 @@ export default function ChatPanel({ chatApiBase, insightsApiBase }: ChatPanelPro
     setInput('');
     setSending(true);
     setError(null);
+    setToolStatus(null);
+
+    // Show user message immediately with a temporary placeholder
+    const tempUserMsg: ChatMessage = {
+      id: Date.now(),
+      role: 'user',
+      content: text,
+      citations: [],
+      used_web: false,
+      created_at: new Date().toISOString(),
+    };
+    // Add user message + streaming placeholder
+    const streamingMsg: ChatMessage = {
+      id: STREAMING_ID,
+      role: 'assistant',
+      content: '',
+      citations: [],
+      used_web: false,
+      created_at: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, tempUserMsg, streamingMsg]);
+
+    let userRealId = tempUserMsg.id;
+    let streamingContent = '';
+    let savedAssistantMsg: ChatMessage | null = null;
+
     try {
-      const res = await fetch(`${chatApiBase}/messages`, {
+      const res = await fetch(`${chatApiBase}/messages/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: text }),
+        signal: AbortSignal.timeout(120_000),
       });
-      if (!res.ok) {
+
+      if (!res.ok || !res.body) {
         const err = await res.json().catch(() => ({})) as Record<string, unknown>;
         setError(String(err.detail ?? 'Something went wrong. Please try again.'));
-        setSending(false);
+        setMessages((prev) => prev.filter((m) => m.id !== tempUserMsg.id && m.id !== STREAMING_ID));
         return;
       }
-      const data = await res.json() as { user_message: ChatMessage; assistant_message: ChatMessage };
-      setMessages((prev) => [...prev, data.user_message, data.assistant_message]);
 
-      // Silently auto-save the user's message as an insight for this topic.
-      // Only save substantive messages (≥30 chars) — short replies like "thanks",
-      // "yes", or "ok" don't reveal the user's thinking and pollute the insight set.
-      if (data.user_message.content.trim().length >= 30) {
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const rawData = line.slice(6).trim();
+          if (rawData === '[DONE]') break;
+
+          let evt: SseEvent;
+          try { evt = JSON.parse(rawData) as SseEvent; } catch { continue; }
+
+          if (evt.type === 'user_message') {
+            userRealId = evt.message.id;
+            setMessages((prev) => prev.map((m) => m.id === tempUserMsg.id ? evt.message : m));
+          } else if (evt.type === 'tool_call') {
+            setToolStatus(evt.name === 'web_search' ? 'Searching the web…' : 'Reading page…');
+          } else if (evt.type === 'token') {
+            streamingContent += evt.text;
+            setMessages((prev) => prev.map((m) =>
+              m.id === STREAMING_ID ? { ...m, content: streamingContent } : m
+            ));
+            setToolStatus(null);
+          } else if (evt.type === 'assistant_message') {
+            savedAssistantMsg = evt.message;
+            setMessages((prev) => prev.map((m) => m.id === STREAMING_ID ? evt.message : m));
+          } else if (evt.type === 'error') {
+            setError(evt.detail);
+            setMessages((prev) => prev.filter((m) => m.id !== STREAMING_ID));
+          }
+        }
+      }
+
+      // Auto-save insight for substantive user messages
+      if (text.length >= 30 && savedAssistantMsg) {
         fetch(insightsApiBase, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            user_perspective: data.user_message.content,
-            summary: data.assistant_message.content.slice(0, 500),
+            user_perspective: text,
+            summary: savedAssistantMsg.content.slice(0, 500),
             tags: [],
           }),
         })
@@ -74,8 +148,10 @@ export default function ChatPanel({ chatApiBase, insightsApiBase }: ChatPanelPro
       }
     } catch {
       setError('Network error. Is the backend running?');
+      setMessages((prev) => prev.filter((m) => m.id !== tempUserMsg.id && m.id !== STREAMING_ID));
     } finally {
       setSending(false);
+      setToolStatus(null);
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }
@@ -151,9 +227,18 @@ export default function ChatPanel({ chatApiBase, insightsApiBase }: ChatPanelPro
                     : 'bg-surface-container-lowest border border-outline-variant text-on-surface',
                 )}>
                   {msg.role === 'assistant' ? (
-                    <div className="prose prose-sm prose-neutral max-w-none [&>p]:my-1 [&>ul]:my-1 [&>ol]:my-1">
-                      <ReactMarkdown rehypePlugins={[rehypeSanitize]}>{msg.content}</ReactMarkdown>
-                    </div>
+                    msg.id === STREAMING_ID && msg.content === '' ? (
+                      /* 3-dot typing indicator while AI hasn't sent any tokens yet */
+                      <div className="flex gap-1 items-center h-4">
+                        <span className="w-1.5 h-1.5 bg-on-surface-variant animate-bounce [animation-delay:0ms]" />
+                        <span className="w-1.5 h-1.5 bg-on-surface-variant animate-bounce [animation-delay:150ms]" />
+                        <span className="w-1.5 h-1.5 bg-on-surface-variant animate-bounce [animation-delay:300ms]" />
+                      </div>
+                    ) : (
+                      <div className="prose prose-sm prose-neutral max-w-none [&>p]:my-1 [&>ul]:my-1 [&>ol]:my-1">
+                        <ReactMarkdown rehypePlugins={[rehypeSanitize]}>{msg.content}</ReactMarkdown>
+                      </div>
+                    )
                   ) : (
                     <p>{msg.content}</p>
                   )}
@@ -179,20 +264,10 @@ export default function ChatPanel({ chatApiBase, insightsApiBase }: ChatPanelPro
               </div>
             ))}
 
-            {sending && (
-              <div className="flex items-start gap-3">
-                <div className="w-6 h-6 bg-primary flex items-center justify-center flex-shrink-0">
-                  <span className="text-on-primary text-[8px] font-black">AI</span>
-                </div>
-                <div className="bg-surface-container-lowest border border-outline-variant px-4 py-3">
-                  <div className="flex gap-1 items-center h-4">
-                    <span className="w-1.5 h-1.5 bg-on-surface-variant animate-bounce [animation-delay:0ms]" />
-                    <span className="w-1.5 h-1.5 bg-on-surface-variant animate-bounce [animation-delay:150ms]" />
-                    <span className="w-1.5 h-1.5 bg-on-surface-variant animate-bounce [animation-delay:300ms]" />
-                  </div>
-                </div>
-              </div>
+            {toolStatus && (
+              <p className="label-bold text-[10px] text-outline text-center py-1 animate-pulse">{toolStatus}</p>
             )}
+
             <div ref={bottomRef} />
           </div>
 

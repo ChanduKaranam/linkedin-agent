@@ -235,6 +235,21 @@ def build_adhoc_topic_config(topic_input: str, base: TopicConfig) -> TopicConfig
     return base.model_copy(update={"topic": cleaned, "queries": queries, "limits": adhoc_limits})
 
 
+async def _mark_failed_fresh(run_id: str, error: str) -> None:
+    """Mark a run as failed using a fresh DB session.
+
+    The main pipeline session may be in a corrupted/rollback-only state after an
+    exception, so error handlers must not reuse it.  Opening a new session here
+    ensures the state update always reaches the DB even when the pipeline session died.
+    """
+    from .db import _get_factory
+    try:
+        async with _get_factory()() as fresh_session:
+            await update_run_state(fresh_session, run_id, "failed", 0, 0, error)
+    except Exception as inner:
+        log.error("failed_to_mark_run_failed", run_id=run_id, error=str(inner))
+
+
 async def run_pipeline_safe(
     session: AsyncSession,
     run_id: str,
@@ -246,11 +261,13 @@ async def run_pipeline_safe(
         await run_pipeline(session, run_id, run_date, topic_cfg, cache_dir)
     except RuntimeError as exc:
         code = str(exc)
+        # NO_SOURCES / SCRAPE_MAJORITY_FAILED already called update_run_state("failed")
+        # inside run_pipeline before raising, so skip the double-update.
         if not any(code.startswith(c) for c in ("NO_SOURCES", "SCRAPE_MAJORITY_FAILED")):
-            await update_run_state(session, run_id, "failed", 0, 0, f"INTERNAL:{code}")
+            await _mark_failed_fresh(run_id, f"INTERNAL:{code}")
     except Exception as exc:
         log.exception("pipeline_uncaught_error", run_id=run_id, error=str(exc))
-        await update_run_state(session, run_id, "failed", 0, 0, f"INTERNAL:{exc}")
+        await _mark_failed_fresh(run_id, f"INTERNAL:{exc}")
 
 
 # ── Search synthesis pipeline ─────────────────────────────────────────────────
