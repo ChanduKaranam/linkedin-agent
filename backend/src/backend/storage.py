@@ -23,14 +23,57 @@ async def init_db() -> None:
     from pathlib import Path
 
     backend_dir = Path(__file__).parent.parent.parent
-    result = subprocess.run(
-        [sys.executable, "-m", "alembic", "upgrade", "head"],
-        cwd=str(backend_dir),
-        capture_output=True,
-        text=True,
+
+    def _run_alembic(*args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, "-m", "alembic", *args],
+            cwd=str(backend_dir),
+            capture_output=True,
+            text=True,
+        )
+
+    def _target_from_upgrade_log(stderr_text: str) -> str | None:
+        import re
+        match = re.search(r"Running upgrade\s+\S*\s*->\s*([0-9a-zA-Z_]+)", stderr_text)
+        return match.group(1) if match else None
+
+    result = _run_alembic("upgrade", "head")
+    if result.returncode == 0:
+        return
+
+    stderr = result.stderr or ""
+    is_duplicate_schema_error = (
+        ("DuplicateTableError" in stderr or "DuplicateColumnError" in stderr)
+        and "already exists" in stderr
     )
-    if result.returncode != 0:
-        raise RuntimeError(f"Alembic upgrade failed:\n{result.stderr}")
+    if is_duplicate_schema_error:
+        stamped: set[str] = set()
+        while True:
+            target = _target_from_upgrade_log(stderr)
+            if not target or target in stamped:
+                break
+            stamp = _run_alembic("stamp", target)
+            if stamp.returncode != 0:
+                raise RuntimeError(
+                    "Alembic stamp failed during duplicate-table recovery:\n"
+                    f"{stamp.stderr}"
+                )
+            stamped.add(target)
+            retry = _run_alembic("upgrade", "head")
+            if retry.returncode == 0:
+                return
+            stderr = retry.stderr or ""
+            is_duplicate_schema_error = (
+                ("DuplicateTableError" in stderr or "DuplicateColumnError" in stderr)
+                and "already exists" in stderr
+            )
+            if not is_duplicate_schema_error:
+                raise RuntimeError(
+                    "Alembic upgrade failed after duplicate-table recovery:\n"
+                    f"{stderr}"
+                )
+
+    raise RuntimeError(f"Alembic upgrade failed:\n{stderr}")
 
 
 # ── Runs ──────────────────────────────────────────────────────────────────────
