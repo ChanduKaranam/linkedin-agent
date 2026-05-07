@@ -7581,3 +7581,9 @@ LiteLLM completion() model= mistral-large-latest; provider = mistral
 {"post_id": 4, "linkedin_deleted": true, "event": "post_deleted", "level": "info", "logger": "src.backend.api.routes_posts", "timestamp": "2026-05-07T11:55:39.828553Z"}
 {"kind": "linkedin", "limit": 200, "count": 3, "event": "posts_library_listed", "level": "info", "logger": "src.backend.api.routes_posts", "timestamp": "2026-05-07T11:55:39.863950Z"}
 
+{"cutoff": "2026-04-22", "retention_days": 15, "chat_messages": 0, "insights": 0, "runs": 0, "event": "data_retention_purge", "level": "info", "logger": "src.backend.api.main", "timestamp": "2026-05-07T15:10:11.583411Z"}
+{"hour": 10, "minute": 14, "tz": "Asia/Kolkata", "event": "inprocess_scheduler_started", "level": "info", "logger": "src.backend.api.main", "timestamp": "2026-05-07T15:10:13.828114Z"}
+{"cutoff": "2026-04-22", "retention_days": 15, "chat_messages": 0, "insights": 0, "runs": 0, "event": "data_retention_purge", "level": "info", "logger": "src.backend.api.main", "timestamp": "2026-05-07T15:33:42.030753Z"}
+{"hour": 10, "minute": 14, "tz": "Asia/Kolkata", "event": "inprocess_scheduler_started", "level": "info", "logger": "src.backend.api.main", "timestamp": "2026-05-07T15:33:44.467440Z"}
+{"cutoff": "2026-04-22", "retention_days": 15, "chat_messages": 0, "insights": 0, "runs": 0, "event": "data_retention_purge", "level": "info", "logger": "src.backend.api.main", "timestamp": "2026-05-07T16:37:30.620646Z"}
+{"hour": 10, "minute": 14, "tz": "Asia/Kolkata", "event": "inprocess_scheduler_started", "level": "info", "logger": "src.backend.api.main", "timestamp": "2026-05-07T16:37:33.423024Z"}

@@ -13,6 +13,7 @@ _TOPICS_YAML = Path(__file__).parent.parent.parent / "topics.yaml"
 _DATA_DIR = Path(__file__).parent.parent.parent / "data"
 _LOGS_DIR = Path(__file__).parent.parent.parent / "logs"
 _CACHE_DIR = _DATA_DIR / "cache"
+_ENV_FILE = Path(__file__).parent.parent.parent / ".env"
 
 
 class Limits(BaseModel):
@@ -78,7 +79,7 @@ def load_topic_config(path: Path = _TOPICS_YAML) -> TopicConfig:
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore")
 
     mistral_api_key: str = ""
     tavily_api_key: str = ""

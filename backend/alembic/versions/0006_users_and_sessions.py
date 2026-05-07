@@ -31,8 +31,11 @@ def upgrade() -> None:
     else:
         user_columns = {col.get("name") for col in inspector.get_columns("users")}
         users_has_username = "username" in user_columns
-        # Some hosted DBs may already contain a legacy/incompatible "users" table.
-        # Only enforce constraints when the expected username column exists.
+        if not users_has_username:
+            raise RuntimeError(
+                "Cannot apply revision 0006: existing 'users' table does not have a 'username' column. "
+                "Migrate/rename the table schema manually before running this revision."
+            )
         if users_has_username:
             if "password" not in user_columns:
                 op.add_column(
