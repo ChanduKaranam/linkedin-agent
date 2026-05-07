@@ -127,7 +127,7 @@ async def generate_daily_linkedin(
     )
     post_id = await create_generated_post(
         session, "linkedin", trend.run_id, run_date, slug,
-        result["content"], result["hashtags"],
+        result["content"], result["hashtags"], headline=trend.headline,
     )
     bg.add_task(_bg_refresh_profile, trend.run_id)
     post = await get_generated_post(session, post_id)
@@ -162,7 +162,7 @@ async def generate_daily_blog(
     content = f"# {result['title']}\n\n{result['content_markdown']}"
     post_id = await create_generated_post(
         session, "blog", trend.run_id, run_date, slug,
-        content, result["tags"],
+        content, result["tags"], headline=trend.headline,
     )
     post = await get_generated_post(session, post_id)
     log.info(
@@ -203,7 +203,7 @@ async def generate_run_linkedin(
     )
     post_id = await create_generated_post(
         session, "linkedin", run_id, trend.run_date, slug,
-        result["content"], result["hashtags"],
+        result["content"], result["hashtags"], headline=trend.headline,
     )
     bg.add_task(_bg_refresh_profile, run_id)
     post = await get_generated_post(session, post_id)
@@ -238,7 +238,7 @@ async def generate_run_blog(
     content = f"# {result['title']}\n\n{result['content_markdown']}"
     post_id = await create_generated_post(
         session, "blog", run_id, trend.run_date, slug,
-        content, result["tags"],
+        content, result["tags"], headline=trend.headline,
     )
     post = await get_generated_post(session, post_id)
     log.info(
@@ -297,10 +297,12 @@ async def publish_post_endpoint(
     if post["kind"] != "linkedin":
         raise HTTPException(status_code=400, detail="Only LinkedIn posts can be published via this endpoint.")
 
+    publish_content = (body.content_override or "").strip() or post["content_markdown"]
+
     try:
         urn = await li.publish_post(
             session,
-            post["content_markdown"],
+            publish_content,
             image_data_url=body.image_data_url,
             image_alt_text=body.image_alt_text,
         )

@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeftRight, Check } from 'lucide-react';
+import { ArrowLeftRight, Check, LogOut } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useWorkspace, type Workspace } from '../../context/WorkspaceContext';
 import { useBackendStatus } from '../../context/BackendStatusContext';
+import { useAuth } from '../../context/AuthContext';
 import ScheduleEditor from '../ScheduleEditor';
 import { buildLinkedInAuthorizeUrl } from '@/lib/linkedinAuth';
 import { useToast } from '@/context/ToastContext';
@@ -15,6 +16,7 @@ export default function Navbar() {
   const { schedule, setSchedule } = useBackendStatus();
   const navigate = useNavigate();
   const { pushToast } = useToast();
+  const { user, logout } = useAuth();
   const [liStatus, setLiStatus] = useState<LinkedInStatus | null>(null);
 
   const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false);
@@ -147,6 +149,16 @@ export default function Navbar() {
             {/* Schedule editor — LinkedIn workspace only */}
             {workspace === 'LINKEDIN_AGENT' && (
               <ScheduleEditor schedule={schedule} onSaved={setSchedule} />
+            )}
+            {user && (
+              <button
+                onClick={() => void logout()}
+                title={`Logged in as ${user.username}`}
+                className="flex items-center gap-1.5 text-[10px] font-mono text-on-surface-variant hover:text-black border border-outline-variant px-2 py-1 transition-colors"
+              >
+                <span className="hidden md:inline">{user.username}</span>
+                <LogOut size={12} />
+              </button>
             )}
           </div>
         </div>
