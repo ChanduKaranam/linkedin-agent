@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import base64
+import json
 import urllib.parse
+import unicodedata
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -20,10 +22,52 @@ _LI_POSTS_URL = "https://api.linkedin.com/rest/posts"
 _LI_IMAGES_URL = "https://api.linkedin.com/rest/images"
 _LI_VERSION = "202503"
 _TOKEN_TTL_SECONDS = 5_184_000  # 60 days
+_LI_COMMENTARY_LIMIT = 3000  # LinkedIn REST API hard limit for commentary field
 
 
 class LinkedInAuthError(ValueError):
     """Auth or token validity issue requiring re-connect."""
+
+
+def _to_linkedin_safe_commentary(content: str) -> str:
+    """Convert text to a parser-safe LinkedIn commentary representation."""
+    text = unicodedata.normalize("NFKC", content)
+    text = text.replace("\r\n", "\n").replace("\r", "\n").replace("\x00", "")
+
+    replacements = {
+        "\u2018": "'",
+        "\u2019": "'",
+        "\u201C": '"',
+        "\u201D": '"',
+        "\u2013": "-",
+        "\u2014": "-",
+        "\u2026": "...",
+        "\u00A0": " ",  # non-breaking space
+        "\u200B": "",   # zero-width space
+        "\u200C": "",   # zero-width non-joiner
+        "\u200D": "",   # zero-width joiner
+        "\uFEFF": "",   # zero-width no-break space
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+
+    # Keep commentary as plain text to avoid any parser quirks in rendered feeds.
+    text = (
+        text.replace("(", "")
+        .replace(")", "")
+        .replace("*", "")
+        .replace("_", "")
+        .replace("`", "")
+    )
+
+    return text.strip()
+
+
+def _duplicate_retry_commentary(content: str) -> str:
+    suffix = f"\n\n(Update: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')})"
+    max_base_len = _LI_COMMENTARY_LIMIT - len(suffix)
+    base = content[:max_base_len].rstrip() if len(content) + len(suffix) > _LI_COMMENTARY_LIMIT else content
+    return f"{base}{suffix}"
 
 
 def _extract_member_name(me_data: dict) -> str | None:
@@ -205,6 +249,8 @@ async def publish_post(
     image_alt_text: str = "",
 ) -> str:
     """POST the content to LinkedIn. Returns the post URN from the response header."""
+    content = _to_linkedin_safe_commentary(content)
+
     account = await get_linkedin_account(session)
     if account is None:
         raise LinkedInAuthError("LinkedIn account not connected. Authorize first.")
@@ -213,48 +259,85 @@ async def publish_post(
     if account["expires_at"] <= now:
         raise LinkedInAuthError("LinkedIn access token has expired. Please reconnect.")
 
+    if len(content) > _LI_COMMENTARY_LIMIT:
+        raise ValueError(
+            f"Post is too long for LinkedIn ({len(content):,} chars). "
+            f"LinkedIn allows a maximum of {_LI_COMMENTARY_LIMIT:,} characters. "
+            "Please shorten the post in the editor and save before publishing."
+        )
+
     image_urn: str | None = None
     if image_data_url:
         image_urn = await _upload_linkedin_image(
             account["access_token"], account["member_urn"], image_data_url
         )
 
-    payload = {
-        "author": account["member_urn"],
-        "commentary": content,
-        "visibility": "PUBLIC",
-        "distribution": {
-            "feedDistribution": "MAIN_FEED",
-            "targetEntities": [],
-            "thirdPartyDistributionChannels": [],
-        },
-        "lifecycleState": "PUBLISHED",
-        "isReshareDisabledByAuthor": False,
-    }
-    if image_urn:
-        payload["content"] = {
-            "media": {
-                "id": image_urn,
-                **({"altText": image_alt_text.strip()} if image_alt_text.strip() else {}),
-            }
+    def _build_payload(commentary: str) -> dict:
+        payload = {
+            "author": account["member_urn"],
+            "commentary": commentary,
+            "visibility": "PUBLIC",
+            "distribution": {
+                "feedDistribution": "MAIN_FEED",
+                "targetEntities": [],
+                "thirdPartyDistributionChannels": [],
+            },
+            "lifecycleState": "PUBLISHED",
+            "isReshareDisabledByAuthor": False,
         }
+        if image_urn:
+            payload["content"] = {
+                "media": {
+                    "id": image_urn,
+                    **({"altText": image_alt_text.strip()} if image_alt_text.strip() else {}),
+                }
+            }
+        return payload
 
     async with httpx.AsyncClient(timeout=20) as client:
-        resp = await client.post(
-            _LI_POSTS_URL,
-            json=payload,
-            headers={
-                "Authorization": f"Bearer {account['access_token']}",
-                "LinkedIn-Version": _LI_VERSION,
-                "X-Restli-Protocol-Version": "2.0.0",
-                "Content-Type": "application/json",
-            },
-        )
+        commentary_to_send = content
+        for attempt in range(2):
+            body_bytes = json.dumps(_build_payload(commentary_to_send), ensure_ascii=False).encode("utf-8")
+            log.info(
+                "linkedin_post_sending",
+                chars=len(commentary_to_send),
+                body_bytes=len(body_bytes),
+                preview_start=commentary_to_send[:120].replace("\n", "↵"),
+                preview_end=commentary_to_send[-80:].replace("\n", "↵"),
+                duplicate_retry=(attempt == 1),
+            )
+            resp = await client.post(
+                _LI_POSTS_URL,
+                content=body_bytes,
+                headers={
+                    "Authorization": f"Bearer {account['access_token']}",
+                    "LinkedIn-Version": _LI_VERSION,
+                    "X-Restli-Protocol-Version": "2.0.0",
+                    "Content-Type": "application/json; charset=utf-8",
+                },
+            )
+            if resp.status_code == 422 and "DUPLICATE_POST" in resp.text and attempt == 0:
+                commentary_to_send = _duplicate_retry_commentary(content)
+                continue
+            break
+
         if resp.status_code == 401:
             # Token can be revoked before expires_at; clear persisted account so UI
             # immediately reflects disconnected state and prompts re-connect.
             await clear_linkedin_account(session)
             raise LinkedInAuthError("LinkedIn token rejected (401). Please reconnect.")
+        if resp.status_code == 422 and "DUPLICATE_POST" in resp.text:
+            raise ValueError(
+                "LinkedIn rejected this as a duplicate post. "
+                "Edit the text slightly (e.g., change one sentence, add/remove a hashtag, "
+                "or wait before reposting) and publish again."
+            )
+        if not resp.is_success:
+            log.error(
+                "linkedin_post_failed",
+                status=resp.status_code,
+                body=resp.text[:500],
+            )
         resp.raise_for_status()
         post_urn = resp.headers.get("x-restli-id", "")
 

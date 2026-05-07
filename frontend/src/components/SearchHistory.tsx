@@ -213,7 +213,7 @@ export default function SearchHistory({ activeRunId, onPaneScroll }: SearchHisto
                 isActive ? 'bg-surface-container-low border-l-primary' : 'hover:bg-surface-container border-l-transparent',
               )}
             >
-              <div className="flex items-start gap-3">
+              <div className="flex items-start gap-3 min-w-0">
                 <span className={cn(
                   'flex-shrink-0 mt-0.5 w-5 h-5 flex items-center justify-center border',
                   isActive ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container border-outline-variant text-on-surface-variant',
@@ -225,7 +225,7 @@ export default function SearchHistory({ activeRunId, onPaneScroll }: SearchHisto
                   )}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className={cn('text-sm font-semibold leading-snug line-clamp-2', isActive ? 'text-primary' : 'text-on-surface')}>
+                  <p className={cn('text-sm font-semibold leading-snug line-clamp-2 break-words', isActive ? 'text-primary' : 'text-on-surface')}>
                     {item.topic}
                   </p>
                   <div className="flex items-center gap-2 mt-1 flex-wrap">

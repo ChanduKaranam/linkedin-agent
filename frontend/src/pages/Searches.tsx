@@ -174,10 +174,7 @@ export default function Searches() {
   return (
     <div className="flex-1 min-h-0 flex overflow-hidden max-w-[1400px] mx-auto px-6 py-6 gap-6">
       {/* Search History Sidebar */}
-      <aside className="w-1/3 min-w-[300px] min-h-0 flex flex-col border border-outline-variant bg-surface overflow-visible shrink-0">
-        <div className="px-5 py-3 border-b border-outline-variant bg-surface-container-low">
-          <h2 className="label-bold">Search History</h2>
-        </div>
+      <aside className="w-1/3 min-w-[300px] min-h-0 flex flex-col border border-outline-variant bg-surface overflow-hidden shrink-0">
         <SearchHistory
           activeRunId={searchRunId || activeRunId || undefined}
           onPaneScroll={(top) => handlePaneScroll('left', top)}

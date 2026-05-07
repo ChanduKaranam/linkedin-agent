@@ -218,6 +218,7 @@ export default function PostEditor({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          content_override: editedContent,
           image_data_url: photoDataUrl,
           image_alt_text: '',
         }),
@@ -288,6 +289,9 @@ export default function PostEditor({
   }
 
   const isDirty = editedContent !== post.content_markdown || JSON.stringify(editedTags) !== JSON.stringify(post.tags);
+  const LI_LIMIT = 3000;
+  const charCount = editedContent.length;
+  const overLimit = kind === 'linkedin' && charCount > LI_LIMIT;
 
   return (
     <div className="flex flex-col gap-5 p-8">
@@ -411,12 +415,23 @@ export default function PostEditor({
           </div>
         )
       ) : (
-        <textarea
-          value={editedContent}
-          onChange={(e) => setEditedContent(e.target.value)}
-          className="w-full resize-y border border-outline-variant bg-surface-container-lowest text-on-surface px-4 py-3 text-sm font-mono leading-relaxed outline-none focus:border-primary focus:border-2 placeholder:text-outline min-h-[300px] max-h-[600px] transition-all"
-          placeholder="Generated content will appear here…"
-        />
+        <>
+          <textarea
+            value={editedContent}
+            onChange={(e) => setEditedContent(e.target.value)}
+            className={cn(
+              'w-full resize-y border bg-surface-container-lowest text-on-surface px-4 py-3 text-sm font-mono leading-relaxed outline-none focus:border-2 placeholder:text-outline min-h-[300px] max-h-[600px] transition-all',
+              overLimit ? 'border-red-500 focus:border-red-500' : 'border-outline-variant focus:border-primary'
+            )}
+            placeholder="Generated content will appear here…"
+          />
+          {kind === 'linkedin' && (
+            <p className={cn('text-[10px] font-mono text-right -mt-3', overLimit ? 'text-red-600 font-bold' : 'text-on-surface-variant')}>
+              {charCount.toLocaleString()} / {LI_LIMIT.toLocaleString()} chars
+              {overLimit && ` — ${(charCount - LI_LIMIT).toLocaleString()} over LinkedIn's limit`}
+            </p>
+          )}
+        </>
       )}
 
       {/* Tag editor */}
@@ -448,15 +463,16 @@ export default function PostEditor({
           {liStatus?.connected ? (
             <button
               onClick={handlePublish}
-              disabled={publishing || isDirty}
-              title={isDirty ? 'Save your edits first' : 'Publish to LinkedIn'}
+              disabled={publishing || isDirty || overLimit}
+              title={isDirty ? 'Save your edits first' : overLimit ? `Post exceeds LinkedIn's 3,000 character limit` : 'Publish to LinkedIn'}
               className="btn-primary py-2.5 px-6 text-[10px] bg-[#0A66C2] hover:bg-[#004182] disabled:opacity-50"
             >
               <Send size={12} />
               {publishing ? 'Publishing…' : 'Publish to LinkedIn'}
             </button>
           ) : null}
-          {isDirty && <p className="text-[10px] text-on-surface-variant font-mono">Save edits before publishing.</p>}
+          {isDirty && !overLimit && <p className="text-[10px] text-on-surface-variant font-mono">Save edits before publishing.</p>}
+          {overLimit && <p className="text-[10px] text-red-600 font-mono font-bold">Post exceeds LinkedIn's 3,000 character limit. Shorten and save first.</p>}
         </div>
       )}
 
