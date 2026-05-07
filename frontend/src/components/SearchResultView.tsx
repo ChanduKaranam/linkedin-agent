@@ -1,6 +1,5 @@
 import ReactMarkdown from 'react-markdown';
 import rehypeSanitize from 'rehype-sanitize';
-import { ArrowLeft } from 'lucide-react';
 import type { TrendDetail } from '@/types';
 import ChatPanel from './ChatPanel';
 import PostStudio from './PostStudio';
@@ -17,19 +16,12 @@ interface SearchResultViewProps {
 }
 
 export default function SearchResultView({
-  trend, topic, onBack, chatApiBase, insightsApiBase, postsApiBase, linkedinApiBase, blogApiBase,
+  trend, topic, chatApiBase, insightsApiBase, postsApiBase, linkedinApiBase, blogApiBase,
 }: SearchResultViewProps) {
   const sourceCount = trend.sources.length;
 
   return (
     <div className="max-w-3xl mx-auto px-2">
-      <button
-        onClick={onBack}
-        className="flex items-center gap-1.5 label-bold text-[10px] text-on-surface-variant hover:text-on-surface mb-6 transition-colors"
-      >
-        <ArrowLeft size={12} /> Back to daily trends
-      </button>
-
       <div className="bg-surface-container-lowest border border-outline-variant overflow-hidden">
         <div className="px-8 py-6 border-b border-outline-variant">
           <span className="label-bold text-[9px] bg-primary text-on-primary px-2 py-1 mb-4 inline-block">Research Brief</span>
