@@ -137,12 +137,29 @@ class GeneratedPost(Base):
     run_id: Mapped[str] = mapped_column(String, nullable=False)
     run_date: Mapped[date] = mapped_column(Date, nullable=False)
     slug: Mapped[str] = mapped_column(String, nullable=False)
+    headline: Mapped[str] = mapped_column(Text, nullable=False, default="")
     content_markdown: Mapped[str] = mapped_column(Text, nullable=False)
     tags_json: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     status: Mapped[str] = mapped_column(String, nullable=False, default="draft")  # draft | edited | published
     linkedin_post_urn: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    username: Mapped[str] = mapped_column(String(255), primary_key=True)
+    password: Mapped[str] = mapped_column(String(255), nullable=False)
+
+
+class AuthSession(Base):
+    __tablename__ = "auth_sessions"
+
+    token: Mapped[str] = mapped_column(String(64), primary_key=True)
+    username: Mapped[str] = mapped_column(String(255), ForeignKey("users.username", ondelete="CASCADE"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class LinkedInAccount(Base):
