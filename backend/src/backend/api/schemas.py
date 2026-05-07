@@ -191,6 +191,7 @@ class PublishResponseOut(BaseModel):
 
 
 class PublishPostIn(BaseModel):
+    content_override: str | None = Field(default=None, max_length=40000)
     image_data_url: str | None = Field(default=None, max_length=20_000_000)
     image_alt_text: str = Field(default="", max_length=4086)
 
@@ -259,3 +260,12 @@ class SlackPublishLinkedInIn(BaseModel):
 class SlackPublishLinkedInOut(BaseModel):
     post_urn: str
     status: str
+
+
+class LoginIn(BaseModel):
+    username: str = Field(min_length=1, max_length=255)
+    password: str = Field(min_length=1, max_length=255)
+
+
+class MeOut(BaseModel):
+    username: str
