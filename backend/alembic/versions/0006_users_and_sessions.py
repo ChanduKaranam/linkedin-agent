@@ -19,6 +19,7 @@ def upgrade() -> None:
     bind = op.get_bind()
     inspector = sa.inspect(bind)
     table_names = set(inspector.get_table_names())
+    users_has_username = False
 
     if "users" not in table_names:
         op.create_table(
@@ -26,17 +27,28 @@ def upgrade() -> None:
             sa.Column("username", sa.String(255), primary_key=True),
             sa.Column("password", sa.String(255), nullable=False),
         )
+        users_has_username = True
     else:
-        pk_constraint = inspector.get_pk_constraint("users")
-        constrained_columns = (pk_constraint or {}).get("constrained_columns") or []
-        if constrained_columns != ["username"]:
-            if constrained_columns:
-                pk_name = (pk_constraint or {}).get("name")
-                if pk_name:
-                    op.drop_constraint(pk_name, "users", type_="primary")
-            op.create_primary_key("users_pkey", "users", ["username"])
+        user_columns = {col.get("name") for col in inspector.get_columns("users")}
+        users_has_username = "username" in user_columns
+        # Some hosted DBs may already contain a legacy/incompatible "users" table.
+        # Only enforce constraints when the expected username column exists.
+        if users_has_username:
+            if "password" not in user_columns:
+                op.add_column(
+                    "users",
+                    sa.Column("password", sa.String(255), nullable=False, server_default=""),
+                )
+            pk_constraint = inspector.get_pk_constraint("users")
+            constrained_columns = (pk_constraint or {}).get("constrained_columns") or []
+            if constrained_columns != ["username"]:
+                if constrained_columns:
+                    pk_name = (pk_constraint or {}).get("name")
+                    if pk_name:
+                        op.drop_constraint(pk_name, "users", type_="primary")
+                op.create_primary_key("users_pkey", "users", ["username"])
 
-    if "auth_sessions" not in table_names:
+    if users_has_username and "auth_sessions" not in table_names:
         op.create_table(
             "auth_sessions",
             sa.Column("token", sa.String(64), primary_key=True),
