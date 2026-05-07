@@ -97,6 +97,7 @@ export default function PostEditor({
   const [viewMode, setViewMode] = useState<ViewMode>('edit');
   const [regenInstructions, setRegenInstructions] = useState('');
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
   const [liStatus, setLiStatus] = useState<LinkedInStatus | null>(null);
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -112,6 +113,8 @@ export default function PostEditor({
     setViewMode('edit');
     setError(null);
     setRegenInstructions('');
+    setPhotoUrl(prev => { if (prev) URL.revokeObjectURL(prev); return null; });
+    setPhotoDataUrl(null);
   }, [post.id]);
 
   // Fetch LinkedIn status when kind is linkedin
@@ -130,11 +133,23 @@ export default function PostEditor({
     if (!file) return;
     if (photoUrl) URL.revokeObjectURL(photoUrl);
     setPhotoUrl(URL.createObjectURL(file));
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      setPhotoDataUrl(typeof result === 'string' ? result : null);
+    };
+    reader.onerror = () => {
+      setPhotoDataUrl(null);
+      setError('Could not read selected image.');
+      pushToast('Selected image could not be read.', 'error');
+    };
+    reader.readAsDataURL(file);
   }
 
   function removePhoto() {
     if (photoUrl) URL.revokeObjectURL(photoUrl);
     setPhotoUrl(null);
+    setPhotoDataUrl(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   }
 
@@ -199,7 +214,14 @@ export default function PostEditor({
     setPublishing(true);
     setError(null);
     try {
-      const res = await fetch(`/api/posts/by-id/${post.id}/publish`, { method: 'POST' });
+      const res = await fetch(`/api/posts/by-id/${post.id}/publish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          image_data_url: photoDataUrl,
+          image_alt_text: '',
+        }),
+      });
       if (!res.ok) {
         const err = await res.json().catch(() => ({})) as Record<string, unknown>;
         setError(String(err.detail ?? 'Publish failed. Check your LinkedIn connection.'));
@@ -227,8 +249,12 @@ export default function PostEditor({
         pushToast('Deleting post failed.', 'error');
         return;
       }
+      const result = await res.json().catch(() => ({} as Record<string, unknown>)) as { linkedin_deleted?: boolean };
       onDeleted?.(post.id);
-      pushToast('Post deleted.', 'success');
+      const msg = result.linkedin_deleted
+        ? 'Post deleted from app and LinkedIn.'
+        : 'Post deleted.';
+      pushToast(msg, 'success');
     } catch {
       setError('Network error while deleting.');
       pushToast('Deleting post failed due to network error.', 'error');
@@ -305,22 +331,28 @@ export default function PostEditor({
       {confirmDeleteOpen && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
           <div className="w-full max-w-sm border border-outline-variant bg-surface-container-lowest p-5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
-            <p className="text-sm font-bold mb-2">Are you sure you want to delete this post?</p>
-            <p className="text-xs text-on-surface-variant mb-4">This action cannot be undone.</p>
+            <p className="text-sm font-bold mb-2">Delete this post?</p>
+            {post.status === 'published' && post.linkedin_post_urn ? (
+              <p className="text-xs text-red-700 border border-red-200 bg-red-50 px-3 py-2 mb-4">
+                ⚠ This post is <strong>live on LinkedIn</strong>. Deleting it here will also remove it from your LinkedIn profile. This cannot be undone.
+              </p>
+            ) : (
+              <p className="text-xs text-on-surface-variant mb-4">This action cannot be undone.</p>
+            )}
             <div className="flex items-center justify-end gap-2">
               <button
                 onClick={() => setConfirmDeleteOpen(false)}
                 disabled={deleting}
                 className="btn-secondary py-1.5 px-4 text-[10px] disabled:opacity-50"
               >
-                No
+                Cancel
               </button>
               <button
                 onClick={confirmDelete}
                 disabled={deleting}
                 className="btn-primary py-1.5 px-4 text-[10px] bg-red-700 hover:bg-red-800 disabled:opacity-50"
               >
-                {deleting ? 'Deleting…' : 'Yes'}
+                {deleting ? 'Deleting…' : post.status === 'published' && post.linkedin_post_urn ? 'Delete from app & LinkedIn' : 'Delete'}
               </button>
             </div>
           </div>

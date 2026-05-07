@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import AsyncGenerator
 
 import litellm
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -84,7 +85,7 @@ async def _exec_web_search(query: str) -> list[dict]:
     return [{"url": r.url, "title": r.title, "snippet": r.snippet} for r in results]
 
 
-async def _exec_web_scrape(url: str, cache_dir: Path, trend: PersistedTrend, session: AsyncSession) -> dict:
+async def _exec_web_scrape(url: str, cache_dir: Path, trend: PersistedTrend, session: AsyncSession | None) -> dict:
     page = await scrape_url(url)
     if page is None:
         return {"url": url, "title": "", "markdown": "", "error": "Could not retrieve content."}
@@ -199,3 +200,124 @@ async def answer(
         "citations": citations,
         "used_web": used_web,
     }
+
+
+async def build_system_prompt(
+    trend: PersistedTrend,
+    user_query: str,
+    session: AsyncSession,
+) -> str:
+    """Public wrapper so route handlers can pre-build the prompt before streaming."""
+    return await _build_system_prompt(trend, user_query, session)
+
+
+async def answer_stream(
+    system_prompt: str,
+    history: list[dict],
+    user_message: str,
+    model_str: str,
+    cache_dir: Path,
+    trend: PersistedTrend,
+    max_tool_calls: int = 4,
+) -> AsyncGenerator[str, None]:
+    """Streaming chat turn. Yields JSON-encoded SSE event strings.
+
+    Event types:
+      {"type": "tool_call", "name": "web_search"|"web_scrape"}  — tool is running
+      {"type": "token",     "text": "..."}                      — LLM token
+      {"type": "done",      "reply": "...", "citations": [...], "used_web": bool}
+    """
+    messages: list[dict] = [{"role": "system", "content": system_prompt}]
+    for m in history:
+        messages.append({"role": m["role"], "content": m["content"]})
+    messages.append({"role": "user", "content": user_message})
+
+    citations: list[dict] = []
+    used_web = False
+
+    # ── Tool-calling loop (non-streaming) ──────────────────────────────────────
+    for iteration in range(max_tool_calls):
+        response = await litellm.acompletion(
+            model=model_str,
+            messages=messages,
+            tools=_TOOL_DEFS,
+            tool_choice="auto",
+        )
+        msg = response.choices[0].message
+        tool_calls = getattr(msg, "tool_calls", None) or []
+
+        if not tool_calls:
+            # No tools needed — stream this response
+            break
+
+        # Signal each tool call to the client so it can show a status indicator
+        for tc in tool_calls:
+            yield json.dumps({"type": "tool_call", "name": tc.function.name})
+
+        assistant_entry: dict = {"role": "assistant", "content": msg.content or ""}
+        assistant_entry["tool_calls"] = [
+            {
+                "id": tc.id,
+                "type": "function",
+                "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+            }
+            for tc in tool_calls
+        ]
+        messages.append(assistant_entry)
+
+        for tc in tool_calls:
+            fn = tc.function.name
+            try:
+                args = json.loads(tc.function.arguments)
+            except json.JSONDecodeError:
+                args = {}
+
+            if fn == "web_search":
+                result = await _exec_web_search(args.get("query", ""))
+                used_web = True
+                for r in result:
+                    if not any(c["url"] == r["url"] for c in citations):
+                        citations.append({"url": r["url"], "title": r["title"], "snippet": r["snippet"]})
+                tool_content = json.dumps(result)
+            elif fn == "web_scrape":
+                result = await _exec_web_scrape(args.get("url", ""), cache_dir, trend, None)
+                used_web = True
+                url = result.get("url", "")
+                if url and not any(c["url"] == url for c in citations):
+                    citations.append({"url": url, "title": result.get("title", ""), "snippet": ""})
+                tool_content = json.dumps(result)
+            else:
+                tool_content = json.dumps({"error": f"Unknown tool: {fn}"})
+
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": tool_content,
+            })
+    else:
+        # Exhausted tool budget — fall through to final streaming call
+        pass
+
+    # ── Stream the final LLM response ─────────────────────────────────────────
+    full_reply = ""
+    try:
+        stream = await litellm.acompletion(
+            model=model_str,
+            messages=messages,
+            tools=None,
+            tool_choice=None,
+            stream=True,
+        )
+        async for chunk in stream:
+            delta = chunk.choices[0].delta
+            token = getattr(delta, "content", None) or ""
+            if token:
+                full_reply += token
+                yield json.dumps({"type": "token", "text": token})
+    except Exception as exc:
+        log.error("answer_stream_failed", error=str(exc))
+        if not full_reply:
+            full_reply = "I encountered an error generating a response. Please try again."
+
+    log.info("chat_stream_complete", used_web=used_web, citations=len(citations))
+    yield json.dumps({"type": "done", "reply": full_reply, "citations": citations, "used_web": used_web})

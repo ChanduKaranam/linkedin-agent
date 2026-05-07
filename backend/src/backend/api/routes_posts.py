@@ -39,6 +39,7 @@ from .schemas import (
     GeneratedPostPatchIn,
     GeneratePostIn,
     LinkedInStatusOut,
+    PublishPostIn,
     PublishResponseOut,
 )
 
@@ -267,15 +268,29 @@ async def patch_post(post_id: int, body: GeneratedPostPatchIn, session: SessionD
 
 @router.delete("/posts/{post_id}", response_model=DeletePostOut)
 async def delete_post(post_id: int, session: SessionDep) -> DeletePostOut:
+    post = await get_generated_post(session, post_id)
+    if post is None:
+        raise HTTPException(status_code=404, detail="Post not found.")
+
+    linkedin_deleted = False
+    if post.get("linkedin_post_urn"):
+        try:
+            await li.delete_linkedin_post(session, post["linkedin_post_urn"])
+            linkedin_deleted = True
+        except Exception as exc:
+            log.warning("linkedin_post_delete_failed", post_id=post_id, error=str(exc))
+
     deleted = await delete_generated_post(session, post_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Post not found.")
-    log.info("post_deleted", post_id=post_id)
-    return DeletePostOut(deleted=True)
+    log.info("post_deleted", post_id=post_id, linkedin_deleted=linkedin_deleted)
+    return DeletePostOut(deleted=True, linkedin_deleted=linkedin_deleted)
 
 
 @router.post("/posts/{post_id}/publish", response_model=PublishResponseOut)
-async def publish_post_endpoint(post_id: int, session: SessionDep) -> PublishResponseOut:
+async def publish_post_endpoint(
+    post_id: int, session: SessionDep, body: PublishPostIn = PublishPostIn()
+) -> PublishResponseOut:
     post = await get_generated_post(session, post_id)
     if post is None:
         raise HTTPException(status_code=404, detail="Post not found.")
@@ -283,7 +298,12 @@ async def publish_post_endpoint(post_id: int, session: SessionDep) -> PublishRes
         raise HTTPException(status_code=400, detail="Only LinkedIn posts can be published via this endpoint.")
 
     try:
-        urn = await li.publish_post(session, post["content_markdown"])
+        urn = await li.publish_post(
+            session,
+            post["content_markdown"],
+            image_data_url=body.image_data_url,
+            image_alt_text=body.image_alt_text,
+        )
     except LinkedInAuthError as exc:
         raise HTTPException(status_code=401, detail=str(exc))
     except ValueError as exc:

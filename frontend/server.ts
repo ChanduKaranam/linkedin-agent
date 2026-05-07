@@ -68,9 +68,45 @@ async function proxy({ method, backendPath, timeoutMs, forwardIp, req, res }: Pr
   }
 }
 
+async function sseProxy({ backendPath, req, res }: { backendPath: string; req: Request; res: Response }) {
+  const url = `${BACKEND}${backendPath}`;
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body),
+      signal: AbortSignal.timeout(120_000),
+    });
+    if (!response.ok || !response.body) {
+      res.write(`data: ${JSON.stringify({ type: 'error', detail: 'Backend error' })}\n\n`);
+      res.write('data: [DONE]\n\n');
+      res.end();
+      return;
+    }
+    const reader = response.body.getReader();
+    req.on('close', () => { reader.cancel().catch(() => {}); });
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      res.write(value);
+    }
+    res.end();
+  } catch (err: unknown) {
+    if (!res.headersSent) {
+      res.write(`data: ${JSON.stringify({ type: 'error', detail: 'Backend unreachable' })}\n\n`);
+      res.write('data: [DONE]\n\n');
+    }
+    res.end();
+  }
+}
+
 async function startServer() {
   const app = express();
-  app.use(express.json());
+  app.use(express.json({ limit: '25mb' }));
 
   // -------------------------------------------------------------------------
   // Health
@@ -110,12 +146,16 @@ async function startServer() {
     proxy({ method: 'DELETE', backendPath: `/chat/${req.params.date}/${req.params.slug}/messages`, timeoutMs: 10_000, req, res }));
   app.post('/api/chat/:date/:slug/messages', (req, res) =>
     proxy({ backendPath: `/chat/${req.params.date}/${req.params.slug}/messages`, timeoutMs: 120_000, forwardIp: true, req, res }));
+  app.post('/api/chat/:date/:slug/messages/stream', (req, res) =>
+    sseProxy({ backendPath: `/chat/${req.params.date}/${req.params.slug}/messages/stream`, req, res }));
   app.get('/api/chat/runs/:runId/:slug/messages', (req, res) =>
     proxy({ backendPath: `/chat/runs/${req.params.runId}/${req.params.slug}/messages`, timeoutMs: 10_000, req, res }));
   app.delete('/api/chat/runs/:runId/:slug/messages', (req, res) =>
     proxy({ method: 'DELETE', backendPath: `/chat/runs/${req.params.runId}/${req.params.slug}/messages`, timeoutMs: 10_000, req, res }));
   app.post('/api/chat/runs/:runId/:slug/messages', (req, res) =>
     proxy({ backendPath: `/chat/runs/${req.params.runId}/${req.params.slug}/messages`, timeoutMs: 120_000, forwardIp: true, req, res }));
+  app.post('/api/chat/runs/:runId/:slug/messages/stream', (req, res) =>
+    sseProxy({ backendPath: `/chat/runs/${req.params.runId}/${req.params.slug}/messages/stream`, req, res }));
 
   // -------------------------------------------------------------------------
   // Insights — dual namespace
@@ -159,7 +199,7 @@ async function startServer() {
   app.patch('/api/posts/by-id/:postId', (req, res) =>
     proxy({ method: 'PATCH', backendPath: `/posts/${req.params.postId}`, timeoutMs: 15_000, req, res }));
   app.post('/api/posts/by-id/:postId/publish', (req, res) =>
-    proxy({ backendPath: `/posts/${req.params.postId}/publish`, timeoutMs: 20_000, req, res }));
+    proxy({ backendPath: `/posts/${req.params.postId}/publish`, timeoutMs: 90_000, req, res }));
 
   // -------------------------------------------------------------------------
   // Slack

@@ -26,20 +26,21 @@ FastAPI application and route handlers. The `main.py` module creates the `app` i
 On server start, if the current local time is past today's scheduled time and no run exists for today, a catch-up run is immediately triggered as an `asyncio.create_task`.
 
 ## Last Session Changes
-**Session date:** 2026-05-02
+**Session date:** 2026-05-07
 
 **Changes made:**
-- `routes_trends.py` — `/health` endpoint no longer takes a `SessionDep` or calls `get_latest_completed_run`. It now returns `{"status": "ok", "latest_run_date": null, "trend_count": 0}` immediately with zero DB access. The `get_latest_completed_run` import was removed from this file.
+- `main.py` — Added `_cleanup_stale_runs()` async function and `_STALE_RUN_TIMEOUT_HOURS = 2` constant. The function queries `get_stale_runs()` and marks any in-progress run whose `started_at` is older than 2 hours as `failed` with error `"TIMEOUT: run exceeded 2-hour limit"`. Wired it into APScheduler as an `interval` job running every 30 minutes (`id="stale_run_cleanup"`). Also added `timedelta` and `timezone` to the `datetime` import.
 
-**Reason:** The `/health` endpoint was timing out during pipeline runs because `get_latest_completed_run` needs a DB connection, and the RAG indexer (`embed_batch` via fastembed) was blocking the entire asyncio event loop with synchronous CPU work. The 5-second proxy timeout in `server.ts` fired before the health query could complete → frontend showed "Agent service is unreachable". Making health a pure liveness check (no DB) ensures it always responds instantly regardless of pipeline state.
+**Reason:** A daily scheduler run got stuck at `summarizing` state (LLM timeout mid-pipeline), and the stale-run cleanup in `lifespan` only fires on server startup — not for runs that get stuck while the server is already running. The stuck run caused the frontend to show "Pipeline is running — showing previous results" indefinitely, even though today's completed trends existed (from a separate adhoc run). The periodic cleanup ensures future stuck runs are auto-resolved within 2 hours without needing a manual DB fix or server restart.
 
-**Outcome:** `/health` now responds in <5ms even while a full pipeline RAG index is running. The frontend "unreachable" banner disappears as soon as the backend is up, not just when it's idle. Date/trend information is still accurate via `/trends/dates` (which is fetched in parallel anyway).
+**Outcome:** Working. The scheduler job is registered at startup when `ENABLE_INPROCESS_SCHEDULER=true`. Stale run cleanup now happens both at startup (existing logic) and every 30 minutes during operation (new job).
 
-**Watch out for:** The health response no longer includes a meaningful `latest_run_date` or `trend_count`. If any component relies on those fields from `/health` (rather than `/trends/dates`), it will always see `null`/`0`. Currently nothing in the frontend reads those fields — it only checks `healthRes.ok`.
+**Watch out for:** The cleanup marks runs `failed`, not `completed_with_warnings` — even if those runs produced partial trends before hanging. Trends already written to the DB for a timed-out run remain accessible via `get_trends_for_date` (queried by run_date, not run_id) but the run itself will appear as failed in the history. If partial results are valuable, the run state could be changed to `completed_with_warnings` instead — but that requires knowing how many trends were saved.
 
 ## Change Log
 | Date | File(s) Changed | Summary |
 |---|---|---|
+| 2026-05-07 | `main.py` | Added periodic stale-run cleanup (every 30 min) to auto-fail runs stuck in-progress for >2 hours |
 | 2026-05-02 | `routes_trends.py` | Made /health a zero-DB liveness check to prevent "unreachable" during heavy pipeline runs |
 | 2026-05-01 | `schemas.py`, `routes_posts.py` | Added GET /posts/all library endpoint; fixed _load_context to use slug-wide queries and 15 style samples; removed synchronous style profile refresh from hot path; raised generation timeouts to 120s |
 | 2026-05-01 | `schemas.py`, `routes_posts.py` | Added `GeneratePostIn` schema; wired optional `user_instructions` into all four generate endpoints |

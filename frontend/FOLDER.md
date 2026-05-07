@@ -13,7 +13,7 @@ Vite 6 + React 19 + React Router v7 SPA frontend for the LinkedIn Agent. Replace
 ## Key Files
 | File | Purpose |
 |---|---|
-| `server.ts` | Express server: 25+ proxy routes forwarding `/api/*` to FastAPI backend, plus Vite middleware in dev or static serving in prod. **Critical:** X-Forwarded-For injection on search/chat POSTs; 120s timeout on post generation; `/api/admin/linkedin/authorize` is a redirect, not a fetch. |
+| `server.ts` | Express server: 25+ proxy routes forwarding `/api/*` to FastAPI backend, plus Vite middleware in dev or static serving in prod. **Critical:** X-Forwarded-For injection on search/chat POSTs; 120s timeout on post generation; `/api/admin/linkedin/authorize` is a redirect, not a fetch. Body limit is 25mb (required for image uploads). Publish endpoint timeout is 90s (image upload + post creation can take up to 60s). |
 | `package.json` | npm deps and scripts (`dev`, `build`, `start`, `lint`). Key deps: react-markdown, rehype-sanitize, @tailwindcss/typography, tailwindcss-animate, motion, lucide-react, react-router-dom. |
 | `vite.config.ts` | Vite + Tailwind v4 plugin + `@` alias → `src/` |
 | `tsconfig.json` | Strict TS, `@/*` paths → `./src/*`, bundler module resolution |
@@ -37,21 +37,20 @@ npm run lint     # tsc --noEmit
 - **`@/*` alias** points to `src/` — used in every import. Configured in both `tsconfig.json` and `vite.config.ts`.
 
 ## Last Session Changes
-**Session date:** 2026-05-01
+**Session date:** 2026-05-06
 
 **Changes made:**
-- **Entire frontend replaced**: migrated from Next.js 16 App Router → Vite 6 + React Router v7. Old frontend backed up to `frontend_old/`. New frontend sourced from `next-fe/` (AI Studio static prototype), fully wired to the backend.
-- `server.ts` — expanded from 1 stub route to 25+ production proxy routes. Post generation timeouts raised to 120s.
-- `src/` — full application: types, contexts, components, pages (see src/FOLDER.md).
-- Multiple bug fixes across the session: `GET /posts/all` route ordering, `list_all_generated_posts` outerjoin replaced with two-step query, `onFirstLoad` callback for auto-selecting the most recent post on navigation return.
+- `server.ts` — raised Express JSON body limit from default 100kb to `25mb`. Previously any image larger than ~75KB (base64 overhead: 1.33×) was silently rejected by Express before reaching the proxy handler, causing LinkedIn publish to go through without the image.
+- `server.ts` — raised publish endpoint proxy timeout from 20s to 90s. LinkedIn image upload involves two round trips (initializeUpload + PUT bytes) plus the post creation call; backend can take up to 60s for large images, so 20s was reliably too short.
 
-**Reason:** User requested migrating to the new Vite/Urban Mono frontend from `next-fe/` while preserving all backend wiring (chat, search, insights, post studio, LinkedIn OAuth).
+**Reason:** Users uploading images for LinkedIn posts saw the post publish successfully but without the attached image. Root cause was a two-part bug: (1) Express body size limit rejecting large images; (2) a stale-state bug in `PostEditor.tsx` where `photoDataUrl` was cleared on post change but the thumbnail preview (`photoUrl`) was not, so users saw the image preview but the data was gone.
 
-**Outcome:** Full feature parity with old frontend. `tsc --noEmit` passes. LinkedIn and Blog Post pages correctly show all generated posts and auto-select the most recent on page load.
+**Outcome:** Both bugs fixed. Frontend server must be restarted to pick up `server.ts` changes.
 
-**Watch out for:** Backend must be restarted (`uvicorn backend.api.main:app --port 8000 --reload`) after any `routes_posts.py` changes for the new `/posts/all` endpoint to be active. The `frontend_old/` directory can be deleted once the new frontend is confirmed stable.
+**Watch out for:** Express's `express.json({ limit: '25mb' })` only controls JSON body parsing. If file upload is ever changed to `multipart/form-data`, a separate `multer` or similar limit applies. The 90s proxy timeout must stay above the backend's combined `httpx` timeouts (40s upload + 20s post = 60s max).
 
 ## Change Log
 | Date | File(s) Changed | Summary |
 |---|---|---|
+| 2026-05-06 | `server.ts` | Raised Express JSON body limit to 25mb and publish timeout to 90s to fix LinkedIn image upload being dropped |
 | 2026-05-01 | All files | Full migration from Next.js to Vite + Urban Mono; wired all backend features; Blog/LinkedIn post library + editor; auto-insight saving; post generation timeout fixes |

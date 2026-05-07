@@ -190,12 +190,18 @@ class PublishResponseOut(BaseModel):
     status: str
 
 
+class PublishPostIn(BaseModel):
+    image_data_url: str | None = Field(default=None, max_length=20_000_000)
+    image_alt_text: str = Field(default="", max_length=4086)
+
+
 class GeneratedPostListItem(GeneratedPostOut):
     headline: str = Field(min_length=1)
 
 
 class DeletePostOut(BaseModel):
     deleted: bool
+    linkedin_deleted: bool = False
 
 
 class SlackMessageOut(BaseModel):
