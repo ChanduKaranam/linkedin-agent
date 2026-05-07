@@ -102,12 +102,17 @@ export function SearchModeProvider({ children }: { children: React.ReactNode }) 
     return stopPolling;
   }, [activeRunId, stopPolling, enterSearch]);
 
-  async function startSearch(topic: string, force = false) {
+  async function startSearch(topic: string, force = true) {
     stopPolling();
     setActiveError(null);
     setActivePhase('pending');
     setActiveTopic(topic);
     setActiveIsCached(false);
+    setMode('search');
+    setSearchTopic(topic);
+    setSearchRunId('');
+    setSearchTrends([]);
+    setSearchBrief(null);
 
     try {
       const res = await fetch('/api/search', {
@@ -143,7 +148,7 @@ export function SearchModeProvider({ children }: { children: React.ReactNode }) 
           const trends: TrendListItem[] = await trendsRes.json();
           await enterSearch(runId, topic, trends);
         }
-        setActivePhase('completed');
+        setActivePhase('idle');
         return;
       }
 

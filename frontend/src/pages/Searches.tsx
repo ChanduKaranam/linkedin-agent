@@ -99,6 +99,44 @@ export default function Searches() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlRunId]);
 
+  // Default hydration: on refresh without run_id, load the latest completed search result.
+  useEffect(() => {
+    if (isTilicho || urlRunId || mode === 'search' || activeRunId) return;
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const historyRes = await fetch('/api/search/history');
+        if (!historyRes.ok || cancelled) return;
+        const history = await historyRes.json() as Array<{
+          run_id: string;
+          topic: string;
+          state: SearchState;
+          started_at: string;
+        }>;
+        const latestCompleted = [...history]
+          .filter((item) => item.state === 'completed' || item.state === 'completed_with_warnings')
+          .sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime())[0];
+        if (!latestCompleted || cancelled) return;
+
+        const trendsRes = await fetch(`/api/search/runs/${latestCompleted.run_id}/trends`);
+        if (!trendsRes.ok || cancelled) return;
+        const trends = await trendsRes.json() as Array<{ slug: string; headline: string; one_liner: string; source_count: number }>;
+        if (cancelled || trends.length === 0) return;
+
+        await enterSearch(latestCompleted.run_id, latestCompleted.topic, trends);
+
+        const url = new URL(window.location.href);
+        url.searchParams.set('run_id', latestCompleted.run_id);
+        url.searchParams.set('q', latestCompleted.topic);
+        window.history.replaceState({}, '', url.toString());
+      } catch { /* ignore default hydration errors */ }
+    })();
+
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlRunId, mode, activeRunId]);
+
   if (isTilicho) {
     return (
       <div className="flex-1 flex overflow-hidden max-w-[1400px] mx-auto px-6 py-6 gap-6 relative">
@@ -136,10 +174,7 @@ export default function Searches() {
   return (
     <div className="flex-1 min-h-0 flex overflow-hidden max-w-[1400px] mx-auto px-6 py-6 gap-6">
       {/* Search History Sidebar */}
-      <aside className="w-1/3 min-w-[300px] min-h-0 flex flex-col border border-outline-variant bg-surface overflow-visible shrink-0">
-        <div className="px-5 py-3 border-b border-outline-variant bg-surface-container-low">
-          <h2 className="label-bold">Search History</h2>
-        </div>
+      <aside className="w-1/3 min-w-[300px] min-h-0 flex flex-col border border-outline-variant bg-surface overflow-hidden shrink-0">
         <SearchHistory
           activeRunId={searchRunId || activeRunId || undefined}
           onPaneScroll={(top) => handlePaneScroll('left', top)}
@@ -168,6 +203,8 @@ export default function Searches() {
         <div
           className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
           onScroll={(e) => handlePaneScroll('right', e.currentTarget.scrollTop)}
+          onWheelCapture={(e) => e.stopPropagation()}
+          onTouchMoveCapture={(e) => e.stopPropagation()}
         >
           {mode === 'search' && searchBrief ? (
             <SearchResultView
