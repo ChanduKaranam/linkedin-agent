@@ -29,18 +29,28 @@ export default function PostStudio({ postsApiBase, linkedinApiBase, blogApiBase,
 
   const currentPost = tab === 'linkedin' ? linkedinPost : blogPost;
 
+  // Always fetch posts when postsApiBase changes (e.g. user switches trends).
+  // Clear stale post data immediately so we don't show a previous trend's post.
   useEffect(() => {
-    if (!open) return;
+    setLinkedinPost(null);
+    setBlogPost(null);
+    setError(null);
+    if (!postsApiBase) return;
+    let cancelled = false;
     fetch(postsApiBase)
       .then((r) => (r.ok ? r.json() : []))
       .then((posts: GeneratedPost[]) => {
-        const li = posts.find((p) => p.kind === 'linkedin');
-        const blog = posts.find((p) => p.kind === 'blog');
-        if (li) setLinkedinPost(li);
-        if (blog) setBlogPost(blog);
+        if (cancelled) return;
+        const li = posts.find((p) => p.kind === 'linkedin') ?? null;
+        const blog = posts.find((p) => p.kind === 'blog') ?? null;
+        setLinkedinPost(li);
+        setBlogPost(blog);
+        // Auto-open if existing posts are found for this trend
+        if (li || blog) setOpen(true);
       })
       .catch(() => {});
-  }, [open, postsApiBase]);
+    return () => { cancelled = true; };
+  }, [postsApiBase]);
 
   async function handleGenerateFirst() {
     setGenerating(true);
@@ -68,6 +78,11 @@ export default function PostStudio({ postsApiBase, linkedinApiBase, blogApiBase,
     else setBlogPost(updated);
   }
 
+  function handleDeleted(postId: number) {
+    if (linkedinPost?.id === postId) setLinkedinPost(null);
+    if (blogPost?.id === postId) setBlogPost(null);
+  }
+
   const tabs: Tab[] = lockedTab ? [lockedTab] : ['linkedin', 'blog'];
 
   return (
@@ -82,7 +97,11 @@ export default function PostStudio({ postsApiBase, linkedinApiBase, blogApiBase,
           </div>
           <div>
             <p className="text-sm font-bold uppercase tracking-tight">Post Studio</p>
-            <p className="label-bold text-[9px] text-outline mt-0.5">Generate LinkedIn post or blog in your voice</p>
+            <p className="label-bold text-[9px] text-outline mt-0.5">
+              {(linkedinPost || blogPost)
+                ? `${[linkedinPost && 'LinkedIn', blogPost && 'Blog'].filter(Boolean).join(' + ')} post ready`
+                : 'Generate LinkedIn post or blog in your voice'}
+            </p>
           </div>
         </div>
         <ChevronDown size={14} className={cn('text-on-surface-variant transition-transform', open && 'rotate-180')} />
@@ -134,6 +153,7 @@ export default function PostStudio({ postsApiBase, linkedinApiBase, blogApiBase,
               blogApiBase={blogApiBase}
               insightsApiBase={insightsApiBase}
               onUpdated={handleUpdated}
+              onDeleted={handleDeleted}
               showPublish={tab === 'linkedin'}
             />
           )}

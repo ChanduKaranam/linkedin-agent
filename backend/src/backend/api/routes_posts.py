@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 from datetime import date
+from urllib.parse import quote
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..agent.post_writer import generate_blog_post, generate_linkedin_post
 from ..db import get_session
 from ..integrations import linkedin as li
+from ..integrations.linkedin import LinkedInAuthError
 from ..logging_setup import get_logger
 from ..storage import (
     add_style_sample,
@@ -37,6 +39,7 @@ from .schemas import (
     GeneratedPostPatchIn,
     GeneratePostIn,
     LinkedInStatusOut,
+    PublishPostIn,
     PublishResponseOut,
 )
 
@@ -265,15 +268,29 @@ async def patch_post(post_id: int, body: GeneratedPostPatchIn, session: SessionD
 
 @router.delete("/posts/{post_id}", response_model=DeletePostOut)
 async def delete_post(post_id: int, session: SessionDep) -> DeletePostOut:
+    post = await get_generated_post(session, post_id)
+    if post is None:
+        raise HTTPException(status_code=404, detail="Post not found.")
+
+    linkedin_deleted = False
+    if post.get("linkedin_post_urn"):
+        try:
+            await li.delete_linkedin_post(session, post["linkedin_post_urn"])
+            linkedin_deleted = True
+        except Exception as exc:
+            log.warning("linkedin_post_delete_failed", post_id=post_id, error=str(exc))
+
     deleted = await delete_generated_post(session, post_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Post not found.")
-    log.info("post_deleted", post_id=post_id)
-    return DeletePostOut(deleted=True)
+    log.info("post_deleted", post_id=post_id, linkedin_deleted=linkedin_deleted)
+    return DeletePostOut(deleted=True, linkedin_deleted=linkedin_deleted)
 
 
 @router.post("/posts/{post_id}/publish", response_model=PublishResponseOut)
-async def publish_post_endpoint(post_id: int, session: SessionDep) -> PublishResponseOut:
+async def publish_post_endpoint(
+    post_id: int, session: SessionDep, body: PublishPostIn = PublishPostIn()
+) -> PublishResponseOut:
     post = await get_generated_post(session, post_id)
     if post is None:
         raise HTTPException(status_code=404, detail="Post not found.")
@@ -281,7 +298,14 @@ async def publish_post_endpoint(post_id: int, session: SessionDep) -> PublishRes
         raise HTTPException(status_code=400, detail="Only LinkedIn posts can be published via this endpoint.")
 
     try:
-        urn = await li.publish_post(session, post["content_markdown"])
+        urn = await li.publish_post(
+            session,
+            post["content_markdown"],
+            image_data_url=body.image_data_url,
+            image_alt_text=body.image_alt_text,
+        )
+    except LinkedInAuthError as exc:
+        raise HTTPException(status_code=401, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -298,23 +322,30 @@ async def linkedin_status(session: SessionDep) -> LinkedInStatusOut:
 
 
 @router.get("/admin/linkedin/authorize")
-async def linkedin_authorize() -> RedirectResponse:
+async def linkedin_authorize(return_to: str = Query(default="/")) -> RedirectResponse:
     from ..config import get_settings
     settings = get_settings()
     if not settings.linkedin_client_id:
         raise HTTPException(status_code=503, detail="LinkedIn OAuth not configured. Set LINKEDIN_CLIENT_ID in .env.")
-    url = li.oauth_start()
+    safe_return_to = return_to if return_to.startswith("/") else "/"
+    url = li.oauth_start(state=safe_return_to)
     return RedirectResponse(url=url)
 
 
 @router.get("/admin/linkedin/callback")
-async def linkedin_callback(code: str, session: SessionDep) -> dict:
+async def linkedin_callback(code: str, session: SessionDep, state: str | None = None) -> RedirectResponse:
+    from ..config import get_settings
+    settings = get_settings()
+    safe_return_to = state if state and state.startswith("/") else "/"
+    base_redirect = f"{settings.frontend_base_url.rstrip('/')}{safe_return_to}"
+    joiner = "&" if "?" in base_redirect else "?"
     try:
-        result = await li.oauth_callback(session, code)
+        await li.oauth_callback(session, code)
     except Exception as exc:
         log.error("linkedin_oauth_callback_failed", error=str(exc))
-        raise HTTPException(status_code=400, detail=f"OAuth failed: {exc}")
-    return {"connected": True, **result}
+        msg = quote(str(exc))
+        return RedirectResponse(url=f"{base_redirect}{joiner}li_auth=failed&msg={msg}", status_code=303)
+    return RedirectResponse(url=f"{base_redirect}{joiner}li_auth=success", status_code=303)
 
 
 # ── Background helper ─────────────────────────────────────────────────────────

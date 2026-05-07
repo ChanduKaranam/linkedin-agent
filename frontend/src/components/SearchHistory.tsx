@@ -1,25 +1,60 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
-import type { SearchHistoryItem, TrendListItem } from '@/types';
+import { useSearchMode } from '@/context/SearchModeContext';
+import type { SearchHistoryItem, SearchState, TrendListItem } from '@/types';
+
+const IN_PROGRESS: SearchState[] = ['pending', 'discovering', 'scraping', 'clustering', 'summarizing'];
+const PHASE_SHORT: Partial<Record<SearchState, string>> = {
+  pending: 'Starting',
+  discovering: 'Discovering',
+  scraping: 'Scraping',
+  clustering: 'Clustering',
+  summarizing: 'Summarizing',
+};
 
 interface SearchHistoryProps {
-  onOpen: (runId: string, topic: string, trends: TrendListItem[]) => void;
   activeRunId?: string;
   onPaneScroll?: (scrollTop: number) => void;
 }
 
-export default function SearchHistory({ onOpen, activeRunId, onPaneScroll }: SearchHistoryProps) {
+export default function SearchHistory({ activeRunId, onPaneScroll }: SearchHistoryProps) {
+  const { enterSearch, resumeSearch, activeTopic, activePhase } = useSearchMode();
   const [items, setItems] = useState<SearchHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [openingRunId, setOpeningRunId] = useState<string | null>(null);
   const [sortMode, setSortMode] = useState<'latest' | 'oldest' | 'chatted' | 'created_linkedin' | 'created_blog'>('latest');
   const [runStats, setRunStats] = useState<Record<string, { chats: number; linkedin: number; blog: number }>>({});
 
+  const activeStartedAtRef = useRef('');
+
   useEffect(() => {
-    fetch('/api/search/history')
-      .then((r) => (r.ok ? r.json() : []))
-      .then((data: SearchHistoryItem[]) => { setItems(data); setLoading(false); })
-      .catch(() => setLoading(false));
+    if (!activeRunId || activePhase === 'idle') {
+      activeStartedAtRef.current = '';
+      return;
+    }
+    if (!activeStartedAtRef.current) activeStartedAtRef.current = new Date().toISOString();
+  }, [activeRunId, activePhase]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadHistory = async () => {
+      try {
+        const res = await fetch('/api/search/history');
+        const data = res.ok ? await res.json() as SearchHistoryItem[] : [];
+        if (!cancelled) {
+          setItems(data);
+          setLoading(false);
+        }
+      } catch {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    void loadHistory();
+    const interval = setInterval(() => { void loadHistory(); }, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, []);
 
   useEffect(() => {
@@ -60,12 +95,31 @@ export default function SearchHistory({ onOpen, activeRunId, onPaneScroll }: Sea
     };
   }, [items]);
 
+  const displayItems = useMemo(() => {
+    if (!activeRunId || activePhase === 'idle' || !IN_PROGRESS.includes(activePhase)) return items;
+    const started_at = activeStartedAtRef.current || new Date().toISOString();
+    const run_date = started_at.slice(0, 10);
+    const optimistic: SearchHistoryItem = {
+      run_id: activeRunId,
+      topic: activeTopic,
+      run_date,
+      state: activePhase,
+      trend_count: 0,
+      started_at,
+    };
+    const existingIdx = items.findIndex((item) => item.run_id === activeRunId);
+    if (existingIdx === -1) return [optimistic, ...items];
+    const updated = [...items];
+    updated[existingIdx] = { ...updated[existingIdx], topic: activeTopic || updated[existingIdx].topic, state: activePhase };
+    return updated;
+  }, [items, activeRunId, activePhase, activeTopic]);
+
   const sortedItems = (() => {
     if (sortMode === 'latest') {
-      return [...items].sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime());
+      return [...displayItems].sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime());
     }
     if (sortMode === 'oldest') {
-      return [...items].sort((a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime());
+      return [...displayItems].sort((a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime());
     }
     const metric = (id: string) => {
       const s = runStats[id];
@@ -74,17 +128,22 @@ export default function SearchHistory({ onOpen, activeRunId, onPaneScroll }: Sea
       if (sortMode === 'created_linkedin') return s.linkedin;
       return s.blog;
     };
-    return [...items].sort((a, b) => metric(b.run_id) - metric(a.run_id));
+    return [...displayItems].sort((a, b) => metric(b.run_id) - metric(a.run_id));
   })();
 
   async function handleOpen(item: SearchHistoryItem) {
     if (openingRunId) return;
+    // In-progress runs: resume polling instead of trying to load trends
+    if (IN_PROGRESS.includes(item.state as SearchState)) {
+      resumeSearch(item.run_id, item.topic, item.state as SearchState);
+      return;
+    }
     setOpeningRunId(item.run_id);
     try {
       const res = await fetch(`/api/search/runs/${item.run_id}/trends`);
       if (!res.ok) return;
       const trends: TrendListItem[] = await res.json();
-      onOpen(item.run_id, item.topic, trends);
+      await enterSearch(item.run_id, item.topic, trends);
     } finally {
       setOpeningRunId(null);
     }
@@ -98,7 +157,7 @@ export default function SearchHistory({ onOpen, activeRunId, onPaneScroll }: Sea
     );
   }
 
-  if (items.length === 0) {
+  if (displayItems.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 px-5 text-center gap-3">
         <div className="w-8 h-8 border border-outline-variant flex items-center justify-center">
@@ -119,7 +178,7 @@ export default function SearchHistory({ onOpen, activeRunId, onPaneScroll }: Sea
           <div>
             <p className="label-bold">Your Searches</p>
             <p className="text-xs text-on-surface-variant mt-0.5 font-mono">
-              {items.length} topic{items.length !== 1 ? 's' : ''}
+              {displayItems.length} topic{displayItems.length !== 1 ? 's' : ''}
             </p>
           </div>
           <select
@@ -143,11 +202,12 @@ export default function SearchHistory({ onOpen, activeRunId, onPaneScroll }: Sea
         {sortedItems.map((item) => {
           const isActive = item.run_id === activeRunId;
           const isOpening = openingRunId === item.run_id;
+          const isInProgress = IN_PROGRESS.includes(item.state as SearchState);
           return (
             <button
               key={item.run_id}
               onClick={() => handleOpen(item)}
-              disabled={!!openingRunId}
+              disabled={!!openingRunId && !isInProgress}
               className={cn(
                 'w-full text-left p-4 border-b border-outline-variant transition-all border-l-2 disabled:opacity-60',
                 isActive ? 'bg-surface-container-low border-l-primary' : 'hover:bg-surface-container border-l-transparent',
@@ -158,7 +218,7 @@ export default function SearchHistory({ onOpen, activeRunId, onPaneScroll }: Sea
                   'flex-shrink-0 mt-0.5 w-5 h-5 flex items-center justify-center border',
                   isActive ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container border-outline-variant text-on-surface-variant',
                 )}>
-                  {isOpening ? (
+                  {isOpening || isInProgress ? (
                     <span className="w-2.5 h-2.5 border border-current border-t-transparent animate-spin" />
                   ) : (
                     <span className="text-[9px] font-mono">S</span>
@@ -168,13 +228,17 @@ export default function SearchHistory({ onOpen, activeRunId, onPaneScroll }: Sea
                   <p className={cn('text-sm font-semibold leading-snug line-clamp-2', isActive ? 'text-primary' : 'text-on-surface')}>
                     {item.topic}
                   </p>
-                  <div className="flex items-center gap-2 mt-1">
+                  <div className="flex items-center gap-2 mt-1 flex-wrap">
                     <span className="label-bold text-[9px] text-outline">
                       {new Date(item.started_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                     </span>
-                    <span className="label-bold text-[9px] text-outline">
-                      {item.trend_count} result{item.trend_count !== 1 ? 's' : ''}
-                    </span>
+                    {isInProgress ? (
+                      <span className="label-bold text-[9px] text-primary">{PHASE_SHORT[item.state as SearchState] ?? 'Running'}…</span>
+                    ) : (
+                      <span className="label-bold text-[9px] text-outline">
+                        {item.trend_count} result{item.trend_count !== 1 ? 's' : ''}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>

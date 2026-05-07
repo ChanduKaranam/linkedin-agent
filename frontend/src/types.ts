@@ -24,10 +24,12 @@ export interface TrendDetail {
 export interface Health {
   status: string;
   latest_run_date: string | null;
+  latest_run_state: string | null;
+  pipeline_running: boolean;
   trend_count: number;
 }
 
-export type BackendStatus = 'ok' | 'unreachable' | 'no_run' | 'no_trends';
+export type BackendStatus = 'ok' | 'unreachable' | 'no_run' | 'no_trends' | 'running';
 
 export interface SearchResponse {
   run_id: string;
@@ -120,8 +122,41 @@ export interface LinkedInStatus {
   connected: boolean;
   expires_at: string | null;
   member_urn: string | null;
+  member_name: string | null;
 }
 
 export interface GeneratedPostWithHeadline extends GeneratedPost {
   headline: string;
+}
+
+export interface SlackMessage {
+  user: string;
+  text: string;
+  ts: string;
+}
+
+export interface SlackHistory {
+  channel: string;
+  messages: SlackMessage[];
+}
+
+export interface SlackChatReply {
+  reply: string;
+}
+
+export interface SlackGeneratedPost {
+  kind: 'linkedin' | 'blog';
+  content_markdown: string;
+  tags: string[];
+}
+
+export interface SlackSendResult {
+  ok: boolean;
+  channel: string;
+  ts: string;
+}
+
+export interface SlackLinkedInPublishResult {
+  post_urn: string;
+  status: string;
 }

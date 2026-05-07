@@ -9,6 +9,7 @@ import rehypeSanitize from 'rehype-sanitize';
 import { Copy, Download, Image, X, Send, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { GeneratedPost, LinkedInStatus, Insight } from '@/types';
+import { useToast } from '@/context/ToastContext';
 
 interface PostEditorProps {
   post: GeneratedPost;
@@ -87,6 +88,7 @@ export default function PostEditor({
   onDeleted,
   showPublish = true,
 }: PostEditorProps) {
+  const { pushToast } = useToast();
   const [editedContent, setEditedContent] = useState(post.content_markdown);
   const [editedTags, setEditedTags] = useState<string[]>([...post.tags]);
   const [tagInput, setTagInput] = useState('');
@@ -95,6 +97,7 @@ export default function PostEditor({
   const [viewMode, setViewMode] = useState<ViewMode>('edit');
   const [regenInstructions, setRegenInstructions] = useState('');
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
   const [liStatus, setLiStatus] = useState<LinkedInStatus | null>(null);
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -110,6 +113,8 @@ export default function PostEditor({
     setViewMode('edit');
     setError(null);
     setRegenInstructions('');
+    setPhotoUrl(prev => { if (prev) URL.revokeObjectURL(prev); return null; });
+    setPhotoDataUrl(null);
   }, [post.id]);
 
   // Fetch LinkedIn status when kind is linkedin
@@ -128,11 +133,23 @@ export default function PostEditor({
     if (!file) return;
     if (photoUrl) URL.revokeObjectURL(photoUrl);
     setPhotoUrl(URL.createObjectURL(file));
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      setPhotoDataUrl(typeof result === 'string' ? result : null);
+    };
+    reader.onerror = () => {
+      setPhotoDataUrl(null);
+      setError('Could not read selected image.');
+      pushToast('Selected image could not be read.', 'error');
+    };
+    reader.readAsDataURL(file);
   }
 
   function removePhoto() {
     if (photoUrl) URL.revokeObjectURL(photoUrl);
     setPhotoUrl(null);
+    setPhotoDataUrl(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   }
 
@@ -150,12 +167,17 @@ export default function PostEditor({
       if (!res.ok) {
         const err = await res.json().catch(() => ({})) as Record<string, unknown>;
         setError(String(err.detail ?? err.error ?? 'Generation failed. Please try again.'));
+        pushToast('Post generation failed.', 'error');
         return;
       }
       const updated: GeneratedPost = await res.json();
       onUpdated(updated);
       setRegenInstructions('');
-    } catch { setError('Network error. Is the backend running?'); }
+      pushToast('Post generated successfully.', 'success');
+    } catch {
+      setError('Network error. Is the backend running?');
+      pushToast('Post generation failed due to network error.', 'error');
+    }
     finally { setGenerating(false); }
   }
 
@@ -171,15 +193,20 @@ export default function PostEditor({
       if (!res.ok) {
         const err = await res.json().catch(() => ({})) as Record<string, unknown>;
         setError(String(err.detail ?? 'Failed to save edits.'));
+        pushToast('Saving post edits failed.', 'error');
         return;
       }
       const updated: GeneratedPost = await res.json();
       onUpdated(updated);
+      pushToast('Post edits saved.', 'success');
       // Note: the backend's PATCH handler already records the edited content as a
       // style sample (add_style_sample "post_edit"). We do NOT save it as an insight
       // here — post drafts are not "user perspectives about this topic" and would
       // confuse future generation by making the LLM copy its own previous output.
-    } catch { setError('Network error.'); }
+    } catch {
+      setError('Network error.');
+      pushToast('Saving post edits failed due to network error.', 'error');
+    }
     finally { setSaving(false); }
   }
 
@@ -187,15 +214,27 @@ export default function PostEditor({
     setPublishing(true);
     setError(null);
     try {
-      const res = await fetch(`/api/posts/by-id/${post.id}/publish`, { method: 'POST' });
+      const res = await fetch(`/api/posts/by-id/${post.id}/publish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          image_data_url: photoDataUrl,
+          image_alt_text: '',
+        }),
+      });
       if (!res.ok) {
         const err = await res.json().catch(() => ({})) as Record<string, unknown>;
         setError(String(err.detail ?? 'Publish failed. Check your LinkedIn connection.'));
+        pushToast('LinkedIn publish failed.', 'error');
         return;
       }
       const result = await res.json() as { post_urn: string };
       onUpdated({ ...post, status: 'published', linkedin_post_urn: result.post_urn });
-    } catch { setError('Network error during publish.'); }
+      pushToast('Post published to LinkedIn.', 'success');
+    } catch {
+      setError('Network error during publish.');
+      pushToast('LinkedIn publish failed due to network error.', 'error');
+    }
     finally { setPublishing(false); }
   }
 
@@ -207,11 +246,18 @@ export default function PostEditor({
       if (!res.ok) {
         const err = await res.json().catch(() => ({})) as Record<string, unknown>;
         setError(String(err.detail ?? 'Failed to delete post.'));
+        pushToast('Deleting post failed.', 'error');
         return;
       }
+      const result = await res.json().catch(() => ({} as Record<string, unknown>)) as { linkedin_deleted?: boolean };
       onDeleted?.(post.id);
+      const msg = result.linkedin_deleted
+        ? 'Post deleted from app and LinkedIn.'
+        : 'Post deleted.';
+      pushToast(msg, 'success');
     } catch {
       setError('Network error while deleting.');
+      pushToast('Deleting post failed due to network error.', 'error');
     } finally {
       setDeleting(false);
       setConfirmDeleteOpen(false);
@@ -219,7 +265,11 @@ export default function PostEditor({
   }
 
   function handleCopy() {
-    navigator.clipboard.writeText(editedContent).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+    navigator.clipboard.writeText(editedContent).then(() => {
+      setCopied(true);
+      pushToast('Copied post content.', 'success');
+      setTimeout(() => setCopied(false), 2000);
+    });
   }
 
   function handleDownload() {
@@ -228,6 +278,7 @@ export default function PostEditor({
     const a = document.createElement('a');
     a.href = url; a.download = `${kind}-post-${post.slug}.md`; a.click();
     URL.revokeObjectURL(url);
+    pushToast('Downloaded markdown file.', 'success');
   }
 
   function addTag() {
@@ -280,22 +331,28 @@ export default function PostEditor({
       {confirmDeleteOpen && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
           <div className="w-full max-w-sm border border-outline-variant bg-surface-container-lowest p-5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
-            <p className="text-sm font-bold mb-2">Are you sure you want to delete this post?</p>
-            <p className="text-xs text-on-surface-variant mb-4">This action cannot be undone.</p>
+            <p className="text-sm font-bold mb-2">Delete this post?</p>
+            {post.status === 'published' && post.linkedin_post_urn ? (
+              <p className="text-xs text-red-700 border border-red-200 bg-red-50 px-3 py-2 mb-4">
+                ⚠ This post is <strong>live on LinkedIn</strong>. Deleting it here will also remove it from your LinkedIn profile. This cannot be undone.
+              </p>
+            ) : (
+              <p className="text-xs text-on-surface-variant mb-4">This action cannot be undone.</p>
+            )}
             <div className="flex items-center justify-end gap-2">
               <button
                 onClick={() => setConfirmDeleteOpen(false)}
                 disabled={deleting}
                 className="btn-secondary py-1.5 px-4 text-[10px] disabled:opacity-50"
               >
-                No
+                Cancel
               </button>
               <button
                 onClick={confirmDelete}
                 disabled={deleting}
                 className="btn-primary py-1.5 px-4 text-[10px] bg-red-700 hover:bg-red-800 disabled:opacity-50"
               >
-                {deleting ? 'Deleting…' : 'Yes'}
+                {deleting ? 'Deleting…' : post.status === 'published' && post.linkedin_post_urn ? 'Delete from app & LinkedIn' : 'Delete'}
               </button>
             </div>
           </div>
@@ -398,11 +455,7 @@ export default function PostEditor({
               <Send size={12} />
               {publishing ? 'Publishing…' : 'Publish to LinkedIn'}
             </button>
-          ) : (
-            <a href="/api/admin/linkedin/authorize" className="btn-secondary py-2.5 px-6 text-[10px] border-[#0A66C2] text-[#0A66C2] hover:bg-blue-50">
-              Connect LinkedIn
-            </a>
-          )}
+          ) : null}
           {isDirty && <p className="text-[10px] text-on-surface-variant font-mono">Save edits before publishing.</p>}
         </div>
       )}

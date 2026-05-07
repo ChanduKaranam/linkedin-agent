@@ -9,7 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import get_schedule_info
 from ..db import get_session
 from ..logging_setup import get_logger
-from ..storage import get_available_dates, get_trend_by_slug, get_trends_for_date
+from ..storage import (
+    get_available_dates,
+    get_latest_completed_run,
+    get_latest_daily_run,
+    get_trend_by_slug,
+    get_trends_for_date,
+)
 from .schemas import HealthOut, ScheduleOut, TrendDetailOut, TrendListItem
 
 router = APIRouter()
@@ -19,9 +25,25 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 
 @router.get("/health", response_model=HealthOut)
-async def health() -> HealthOut:
-    """Lightweight liveness check — no DB query so it never blocks during heavy pipeline runs."""
-    return HealthOut(status="ok", latest_run_date=None, trend_count=0)
+async def health(session: SessionDep) -> HealthOut:
+    """Liveness + latest run status for frontend loading state."""
+    latest = await get_latest_daily_run(session)
+    if latest is None:
+        return HealthOut(
+            status="ok",
+            latest_run_date=None,
+            latest_run_state=None,
+            pipeline_running=False,
+            trend_count=0,
+        )
+    running_states = {"pending", "discovering", "scraping", "clustering", "summarizing"}
+    return HealthOut(
+        status="ok",
+        latest_run_date=latest.run_date,
+        latest_run_state=latest.state,
+        pipeline_running=latest.state in running_states,
+        trend_count=latest.trend_count,
+    )
 
 
 @router.get("/schedule", response_model=ScheduleOut)

@@ -5,6 +5,7 @@ import { useSearchMode } from '@/context/SearchModeContext';
 import SearchBar from '@/components/SearchBar';
 import SearchHistory from '@/components/SearchHistory';
 import SearchResultView from '@/components/SearchResultView';
+import type { SearchState } from '@/types';
 
 // Tilicho mock history items
 const TILICHO_HISTORY = [
@@ -12,15 +13,28 @@ const TILICHO_HISTORY = [
   { id: 't2', title: 'K8s Cluster Autoscaler Logs', time: '09:15 AM', query: 'Search logs for OOM errors in the production cluster during peak traffic yesterday.', results: '18 Errors', saved: false },
 ];
 
+const TERMINAL: SearchState[] = ['completed', 'completed_with_warnings', 'failed'];
+const IN_PROGRESS: SearchState[] = ['pending', 'discovering', 'scraping', 'clustering', 'summarizing'];
+
 export default function Searches() {
   const { workspace } = useWorkspace();
   const isTilicho = workspace === 'TILICHO_LABS';
-  const { mode, searchTopic, searchRunId, searchBrief, enterSearch, clearSearch } = useSearchMode();
+  const {
+    mode, searchTopic, searchRunId, searchBrief,
+    enterSearch, clearSearch,
+    activePhase, activeRunId, resumeSearch,
+  } = useSearchMode();
+
   const [isTopSectionVisible, setIsTopSectionVisible] = useState(true);
   const isTopSectionVisibleRef = useRef(true);
   const leftScrollTopRef = useRef(0);
   const rightScrollTopRef = useRef(0);
   const lastScrolledPaneRef = useRef<'left' | 'right'>('right');
+
+  // Read URL params once (for initialQuery and deep-link hydration)
+  const urlParams = new URLSearchParams(window.location.search);
+  const urlQuery = urlParams.get('q') ?? '';
+  const urlRunId = urlParams.get('run_id') ?? '';
 
   function setHeaderVisibility(visible: boolean) {
     if (isTopSectionVisibleRef.current === visible) return;
@@ -31,29 +45,14 @@ export default function Searches() {
 
   function handlePaneScroll(pane: 'left' | 'right', scrollTop: number) {
     lastScrolledPaneRef.current = pane;
-    if (pane === 'left') {
-      leftScrollTopRef.current = scrollTop;
-    } else {
-      rightScrollTopRef.current = scrollTop;
-    }
+    if (pane === 'left') leftScrollTopRef.current = scrollTop;
+    else rightScrollTopRef.current = scrollTop;
 
     const activeTop = pane === 'left' ? leftScrollTopRef.current : rightScrollTopRef.current;
     const otherTop = pane === 'left' ? rightScrollTopRef.current : leftScrollTopRef.current;
-    const bothNearTop = activeTop < 8 && otherTop < 8;
-
-    if (bothNearTop) {
-      setHeaderVisibility(true);
-      return;
-    }
-
-    // Position-based hysteresis prevents jitter from wheel/touchpad inertia.
-    if (isTopSectionVisibleRef.current && activeTop > 72) {
-      setHeaderVisibility(false);
-      return;
-    }
-    if (!isTopSectionVisibleRef.current && activeTop < 24) {
-      setHeaderVisibility(true);
-    }
+    if (activeTop < 8 && otherTop < 8) { setHeaderVisibility(true); return; }
+    if (isTopSectionVisibleRef.current && activeTop > 72) { setHeaderVisibility(false); return; }
+    if (!isTopSectionVisibleRef.current && activeTop < 24) setHeaderVisibility(true);
   }
 
   useEffect(() => {
@@ -62,46 +61,88 @@ export default function Searches() {
     };
   }, []);
 
+  // Deep-link hydration: if ?run_id= is in the URL, reattach to that run.
+  // This fires when the component mounts (navigation back) or on hard refresh.
   useEffect(() => {
-    if (isTilicho) return;
-    const params = new URLSearchParams(window.location.search);
-    const runId = params.get('run_id');
-    const preferredSlug = params.get('slug');
-    if (!runId) return;
-    let cancelled = false;
+    if (isTilicho || !urlRunId) return;
+    // If context already tracks this run (still in progress), nothing to do.
+    if (activeRunId === urlRunId) return;
 
+    let cancelled = false;
     void (async () => {
       try {
         const [statusRes, trendsRes] = await Promise.all([
-          fetch(`/api/search/runs/${runId}`),
-          fetch(`/api/search/runs/${runId}/trends`),
+          fetch(`/api/search/runs/${urlRunId}`),
+          fetch(`/api/search/runs/${urlRunId}/trends`),
         ]);
-        if (!statusRes.ok || !trendsRes.ok) return;
-        const status = await statusRes.json() as { topic: string };
+        if (!statusRes.ok || cancelled) return;
+        const status = await statusRes.json() as { topic: string; state: SearchState };
+        const topic = status.topic.split('#')[0];
+
+        if (IN_PROGRESS.includes(status.state)) {
+          // Run is still going — hand off to context polling
+          resumeSearch(urlRunId, topic, status.state);
+        } else if (TERMINAL.includes(status.state) && status.state !== 'failed') {
+          // Run completed — load results
+          if (!trendsRes.ok || cancelled) return;
+          const trends = await trendsRes.json() as Array<{ slug: string; headline: string; one_liner: string; source_count: number }>;
+          if (cancelled || trends.length === 0) return;
+          const urlSlug = new URLSearchParams(window.location.search).get('slug') ?? '';
+          const ordered = urlSlug
+            ? [...trends].sort((a, b) => (a.slug === urlSlug ? -1 : b.slug === urlSlug ? 1 : 0))
+            : trends;
+          await enterSearch(urlRunId, topic, ordered);
+        }
+      } catch { /* ignore deep-link hydration errors */ }
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlRunId]);
+
+  // Default hydration: on refresh without run_id, load the latest completed search result.
+  useEffect(() => {
+    if (isTilicho || urlRunId || mode === 'search' || activeRunId) return;
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const historyRes = await fetch('/api/search/history');
+        if (!historyRes.ok || cancelled) return;
+        const history = await historyRes.json() as Array<{
+          run_id: string;
+          topic: string;
+          state: SearchState;
+          started_at: string;
+        }>;
+        const latestCompleted = [...history]
+          .filter((item) => item.state === 'completed' || item.state === 'completed_with_warnings')
+          .sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime())[0];
+        if (!latestCompleted || cancelled) return;
+
+        const trendsRes = await fetch(`/api/search/runs/${latestCompleted.run_id}/trends`);
+        if (!trendsRes.ok || cancelled) return;
         const trends = await trendsRes.json() as Array<{ slug: string; headline: string; one_liner: string; source_count: number }>;
         if (cancelled || trends.length === 0) return;
-        const ordered = preferredSlug
-          ? [...trends].sort((a, b) => (a.slug === preferredSlug ? -1 : b.slug === preferredSlug ? 1 : 0))
-          : trends;
-        await enterSearch(runId, status.topic, ordered);
-      } catch {
-        // ignore deep-link hydration errors
-      }
+
+        await enterSearch(latestCompleted.run_id, latestCompleted.topic, trends);
+
+        const url = new URL(window.location.href);
+        url.searchParams.set('run_id', latestCompleted.run_id);
+        url.searchParams.set('q', latestCompleted.topic);
+        window.history.replaceState({}, '', url.toString());
+      } catch { /* ignore default hydration errors */ }
     })();
 
-    return () => {
-      cancelled = true;
-    };
-  }, [enterSearch, isTilicho]);
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlRunId, mode, activeRunId]);
 
   if (isTilicho) {
     return (
       <div className="flex-1 flex overflow-hidden max-w-[1400px] mx-auto px-6 py-6 gap-6 relative">
-        {/* Coming soon */}
         <div className="absolute top-4 right-6 z-20 pointer-events-none">
           <span className="label-bold bg-primary text-on-primary px-3 py-1.5 border border-primary">TILICHO · COMING SOON</span>
         </div>
-
         <aside className="w-1/3 min-w-[320px] flex flex-col border border-outline-variant bg-surface">
           <div className="px-5 py-3 border-b border-outline-variant bg-surface-container-low">
             <h2 className="label-bold text-on-surface">Experiment History</h2>
@@ -122,7 +163,6 @@ export default function Searches() {
             ))}
           </div>
         </aside>
-
         <section className="flex-1 bg-surface-container-lowest border border-outline-variant p-8">
           <h1 className="text-2xl font-bold mb-4">Tilicho Research</h1>
           <p className="text-on-surface-variant">Backend wiring coming soon. Mock experiment data is shown.</p>
@@ -139,8 +179,7 @@ export default function Searches() {
           <h2 className="label-bold">Search History</h2>
         </div>
         <SearchHistory
-          onOpen={(runId, topic, trends) => enterSearch(runId, topic, trends)}
-          activeRunId={searchRunId || undefined}
+          activeRunId={searchRunId || activeRunId || undefined}
           onPaneScroll={(top) => handlePaneScroll('left', top)}
         />
       </aside>
@@ -158,7 +197,7 @@ export default function Searches() {
         >
           <h1 className="text-2xl font-bold mb-4">Research Any Topic</h1>
           <SearchBar
-            onResults={(runId, topic, trends) => enterSearch(runId, topic, trends)}
+            initialQuery={urlQuery}
             onClear={clearSearch}
           />
         </div>
@@ -167,6 +206,8 @@ export default function Searches() {
         <div
           className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
           onScroll={(e) => handlePaneScroll('right', e.currentTarget.scrollTop)}
+          onWheelCapture={(e) => e.stopPropagation()}
+          onTouchMoveCapture={(e) => e.stopPropagation()}
         >
           {mode === 'search' && searchBrief ? (
             <SearchResultView
@@ -180,7 +221,7 @@ export default function Searches() {
               blogApiBase={`/api/posts/runs/${searchRunId}/${searchBrief.slug}/blog`}
             />
           ) : mode === 'search' && !searchBrief ? (
-            <div className={cn('bg-surface-container-lowest border border-outline-variant p-8 flex items-center gap-3')}>
+            <div className="bg-surface-container-lowest border border-outline-variant p-8 flex items-center gap-3">
               <span className="w-5 h-5 border-2 border-primary border-t-transparent animate-spin flex-shrink-0" />
               <p className="label-bold text-[10px]">Loading research brief for "{searchTopic}"…</p>
             </div>

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
-from sqlalchemy import and_, delete, func, select, tuple_, update
+from sqlalchemy import and_, case, delete, func, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db_models import ChatMessage, GeneratedPost, Insight, LinkedInAccount, Run, StyleProfile, StyleSample, Trend
@@ -41,9 +41,17 @@ async def create_run(
     topic: str,
     kind: str = "daily",
 ) -> None:
-    await session.execute(
-        delete(Run).where(Run.run_date == run_date, Run.topic == topic)
-    )
+    if kind == "daily":
+        # Delete ALL same-date daily runs regardless of topic.  A topic rename in
+        # topics.yaml must not leave an orphaned completed row alongside the new
+        # pending one — that causes get_latest_daily_run to see duplicate rows.
+        await session.execute(
+            delete(Run).where(Run.run_date == run_date, Run.kind == "daily")
+        )
+    else:
+        await session.execute(
+            delete(Run).where(Run.run_date == run_date, Run.topic == topic, Run.kind == kind)
+        )
     session.add(Run(
         run_id=run_id,
         run_date=run_date,
@@ -94,6 +102,24 @@ async def get_run(session: AsyncSession, run_id: str) -> RunState | None:
     return _orm_to_run(row) if row else None
 
 
+async def get_latest_daily_run(session: AsyncSession) -> RunState | None:
+    # Prefer completed rows over in-progress rows for the same date.
+    # Without a tiebreaker, Postgres non-deterministically returns either row
+    # when two daily runs share run_date (e.g. a completed + a newly spawned pending).
+    priority = case(
+        (Run.state.in_(["completed", "completed_with_warnings"]), 0),
+        (Run.state == "failed", 2),
+        else_=1,
+    )
+    row = (await session.execute(
+        select(Run)
+        .where(Run.kind == "daily")
+        .order_by(Run.run_date.desc(), priority.asc(), Run.started_at.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+    return _orm_to_run(row) if row else None
+
+
 async def get_latest_completed_run(session: AsyncSession) -> RunState | None:
     row = (await session.execute(
         select(Run)
@@ -119,9 +145,10 @@ async def list_runs(session: AsyncSession, limit: int = 20) -> list[RunState]:
 
 
 async def list_adhoc_runs(session: AsyncSession, limit: int = 50) -> list[RunState]:
+    # Include in-progress runs so the history sidebar can show their progress.
     rows = (await session.execute(
         select(Run)
-        .where(Run.kind == "adhoc", Run.state.in_(["completed", "completed_with_warnings"]))
+        .where(Run.kind == "adhoc", Run.state != "failed")
         .order_by(Run.started_at.desc())
         .limit(limit)
     )).scalars().all()
@@ -129,9 +156,12 @@ async def list_adhoc_runs(session: AsyncSession, limit: int = 50) -> list[RunSta
 
 
 async def run_exists_for_date(session: AsyncSession, run_date: date, topic: str) -> bool:
+    # Topic filter intentionally dropped for daily runs: a renamed topic in
+    # topics.yaml must not cause a false "no run" result that triggers a spurious
+    # catch-up run alongside the existing completed run.
     row = (await session.execute(
         select(Run.run_id)
-        .where(Run.run_date == run_date, Run.topic == topic, Run.state != "failed")
+        .where(Run.run_date == run_date, Run.kind == "daily", Run.state != "failed")
         .limit(1)
     )).scalar_one_or_none()
     return row is not None
@@ -739,6 +769,7 @@ async def get_linkedin_account(session: AsyncSession) -> dict | None:
         "refresh_token": row.refresh_token,
         "expires_at": row.expires_at,
         "member_urn": row.member_urn,
+        "member_name": row.member_name,
     }
 
 
@@ -748,6 +779,7 @@ async def upsert_linkedin_account(
     refresh_token: str | None,
     expires_at: datetime,
     member_urn: str,
+    member_name: str | None = None,
 ) -> None:
     existing = (await session.execute(select(LinkedInAccount).where(LinkedInAccount.id == 1))).scalar_one_or_none()
     if existing:
@@ -755,6 +787,8 @@ async def upsert_linkedin_account(
         existing.refresh_token = refresh_token
         existing.expires_at = expires_at
         existing.member_urn = member_urn
+        if member_name is not None:
+            existing.member_name = member_name
     else:
         session.add(LinkedInAccount(
             id=1,
@@ -762,5 +796,11 @@ async def upsert_linkedin_account(
             refresh_token=refresh_token,
             expires_at=expires_at,
             member_urn=member_urn,
+            member_name=member_name,
         ))
+    await session.commit()
+
+
+async def clear_linkedin_account(session: AsyncSession) -> None:
+    await session.execute(delete(LinkedInAccount).where(LinkedInAccount.id == 1))
     await session.commit()

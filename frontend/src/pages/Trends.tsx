@@ -18,7 +18,7 @@ const TILICHO_HEADLINES = [
 export default function Trends() {
   const { workspace } = useWorkspace();
   const isTilicho = workspace === 'TILICHO_LABS';
-  const { backendStatus, availableDates, selectedDate, setSelectedDate, schedule } = useBackendStatus();
+  const { backendStatus, availableDates, selectedDate, setSelectedDate, schedule, refresh } = useBackendStatus();
 
   const [dailyTrends, setDailyTrends] = useState<TrendListItem[]>([]);
   const [sortMode, setSortMode] = useState<'latest' | 'oldest' | 'chatted' | 'created_linkedin' | 'created_blog'>('latest');
@@ -166,6 +166,7 @@ export default function Trends() {
     const next = schedule ? `${String(schedule.hour).padStart(2, '0')}:${String(schedule.minute).padStart(2, '0')} ${tz}` : undefined;
     return <EmptyState variant="no_run" nextScheduled={next} />;
   }
+  if (!isTilicho && backendStatus === 'running' && availableDates.length === 0) return <EmptyState variant="running" />;
   if (!isTilicho && backendStatus === 'no_trends') return <EmptyState variant="no_trends" />;
 
   if (isTilicho) {
@@ -224,6 +225,14 @@ export default function Trends() {
 
   return (
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden w-full max-w-[1600px] mx-auto">
+      {/* Pipeline-running banner */}
+      {backendStatus === 'running' && (
+        <div className="px-4 py-2 bg-surface-container border-b border-outline-variant flex items-center gap-3">
+          <span className="w-3 h-3 border-2 border-primary border-t-transparent animate-spin flex-shrink-0" />
+          <span className="text-xs font-mono text-on-surface-variant flex-1">Pipeline is running — showing previous results. New trends will appear automatically when complete.</span>
+          <button onClick={refresh} className="text-xs font-mono text-primary underline underline-offset-2 hover:opacity-70 flex-shrink-0">Check now</button>
+        </div>
+      )}
       {/* Date selector */}
       {availableDates.length > 0 && (
         <div

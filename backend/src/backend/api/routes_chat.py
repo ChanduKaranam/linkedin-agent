@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+import json
 import re
 import time
 from collections import defaultdict, deque
 from datetime import date
-from typing import Annotated
+from typing import Annotated, AsyncGenerator
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..agent.chat_agent import answer as chat_answer
+from ..agent.chat_agent import answer as chat_answer, answer_stream, build_system_prompt
 from ..config import get_settings, get_topic_config
 from ..db import get_session
 from ..logging_setup import get_logger
@@ -153,6 +155,91 @@ async def post_daily_chat(
     return ChatPostOut(user_message=_row_to_msg_out(user_row), assistant_message=_row_to_msg_out(asst_row))
 
 
+# ── Daily trend chat (streaming) ───────────────────────────────────────────────
+
+@router.post("/chat/{date}/{slug}/messages/stream")
+async def post_daily_chat_stream(
+    date: str, slug: str, body: ChatPostIn, request: Request, session: SessionDep
+) -> StreamingResponse:
+    _rate_limit_check(_client_ip(request))
+    cfg = get_topic_config()
+    settings = get_settings()
+
+    try:
+        run_date = _date_parse(date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
+
+    trend = await get_trend_by_slug(session, run_date, slug)
+    if trend is None:
+        raise HTTPException(status_code=404, detail="Trend not found.")
+
+    user_content = _sanitize_message(body.content)
+    history = await list_chat_messages(session, run_date=run_date, slug=slug, limit=cfg.chat.max_history_turns * 2)
+
+    # All DB work happens HERE (before streaming) so the session stays clean
+    system_prompt = await build_system_prompt(trend, user_content, session)
+    user_id = await append_chat_message(session, trend.run_id, run_date, slug, "user", user_content)
+    await record_sample(session, "chat", user_content, source_ref=user_id)
+    all_rows = await list_chat_messages(session, run_date=run_date, slug=slug, limit=200)
+    user_row = next(r for r in all_rows if r["id"] == user_id)
+    user_row_dict = _row_to_msg_out(user_row).model_dump()
+
+    history_for_agent = [{"role": r["role"], "content": r["content"]} for r in history]
+    run_id = trend.run_id
+    run_date_val = run_date
+
+    async def event_stream() -> AsyncGenerator[str, None]:
+        yield f"data: {json.dumps({'type': 'user_message', 'message': user_row_dict})}\n\n"
+
+        full_reply = ""
+        citations: list[dict] = []
+        used_web = False
+        try:
+            async for event_json in answer_stream(
+                system_prompt=system_prompt,
+                history=history_for_agent,
+                user_message=user_content,
+                model_str=cfg.models.summarize,
+                cache_dir=settings.cache_dir,
+                trend=trend,
+                max_tool_calls=cfg.chat.max_tool_calls,
+            ):
+                data = json.loads(event_json)
+                if data["type"] == "token":
+                    full_reply += data["text"]
+                elif data["type"] == "done":
+                    citations = data.get("citations", [])
+                    used_web = data.get("used_web", False)
+                    full_reply = data.get("reply", full_reply)
+                yield f"data: {event_json}\n\n"
+        except Exception as exc:
+            log.error("daily_chat_stream_failed", error=str(exc))
+            yield f"data: {json.dumps({'type': 'error', 'detail': 'Generation failed. Please try again.'})}\n\n"
+            yield "data: [DONE]\n\n"
+            return
+
+        from ..db import _get_factory
+        try:
+            async with _get_factory()() as new_session:
+                asst_id = await append_chat_message(
+                    new_session, run_id, run_date_val, slug, "assistant", full_reply, citations, used_web
+                )
+                saved_rows = await list_chat_messages(new_session, run_date=run_date_val, slug=slug, limit=200)
+                asst_row = next((r for r in saved_rows if r["id"] == asst_id), None)
+                if asst_row:
+                    yield f"data: {json.dumps({'type': 'assistant_message', 'message': _row_to_msg_out(asst_row).model_dump()})}\n\n"
+        except Exception as exc:
+            log.error("daily_chat_stream_save_failed", error=str(exc))
+
+        import asyncio
+        asyncio.create_task(_bg_refresh_profile_task())
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 # ── Adhoc/search run chat ───────────────────────────────────────────────────────
 
 @router.get("/chat/runs/{run_id}/{slug}/messages", response_model=list[ChatMessageOut])
@@ -206,6 +293,85 @@ async def post_run_chat(
     user_row = next(r for r in all_rows if r["id"] == user_id)
     asst_row = next(r for r in all_rows if r["id"] == asst_id)
     return ChatPostOut(user_message=_row_to_msg_out(user_row), assistant_message=_row_to_msg_out(asst_row))
+
+
+# ── Adhoc/search run chat (streaming) ─────────────────────────────────────────
+
+@router.post("/chat/runs/{run_id}/{slug}/messages/stream")
+async def post_run_chat_stream(
+    run_id: str, slug: str, body: ChatPostIn, request: Request, session: SessionDep
+) -> StreamingResponse:
+    _rate_limit_check(_client_ip(request))
+    cfg = get_topic_config()
+    settings = get_settings()
+
+    trends = await get_trends_for_run(session, run_id)
+    trend = next((t for t in trends if t.slug == slug), None)
+    if trend is None:
+        raise HTTPException(status_code=404, detail="Trend not found for this run.")
+
+    user_content = _sanitize_message(body.content)
+    history = await list_chat_messages(session, run_id=run_id, slug=slug, limit=cfg.chat.max_history_turns * 2)
+
+    system_prompt = await build_system_prompt(trend, user_content, session)
+    user_id = await append_chat_message(session, run_id, trend.run_date, slug, "user", user_content)
+    await record_sample(session, "chat", user_content, source_ref=user_id)
+    all_rows = await list_chat_messages(session, run_id=run_id, slug=slug, limit=200)
+    user_row = next(r for r in all_rows if r["id"] == user_id)
+    user_row_dict = _row_to_msg_out(user_row).model_dump()
+    run_date_val = trend.run_date
+
+    history_for_agent = [{"role": r["role"], "content": r["content"]} for r in history]
+
+    async def event_stream() -> AsyncGenerator[str, None]:
+        yield f"data: {json.dumps({'type': 'user_message', 'message': user_row_dict})}\n\n"
+
+        full_reply = ""
+        citations: list[dict] = []
+        used_web = False
+        try:
+            async for event_json in answer_stream(
+                system_prompt=system_prompt,
+                history=history_for_agent,
+                user_message=user_content,
+                model_str=cfg.models.summarize,
+                cache_dir=settings.cache_dir,
+                trend=trend,
+                max_tool_calls=cfg.chat.max_tool_calls,
+            ):
+                data = json.loads(event_json)
+                if data["type"] == "token":
+                    full_reply += data["text"]
+                elif data["type"] == "done":
+                    citations = data.get("citations", [])
+                    used_web = data.get("used_web", False)
+                    full_reply = data.get("reply", full_reply)
+                yield f"data: {event_json}\n\n"
+        except Exception as exc:
+            log.error("run_chat_stream_failed", error=str(exc))
+            yield f"data: {json.dumps({'type': 'error', 'detail': 'Generation failed. Please try again.'})}\n\n"
+            yield "data: [DONE]\n\n"
+            return
+
+        from ..db import _get_factory
+        try:
+            async with _get_factory()() as new_session:
+                asst_id = await append_chat_message(
+                    new_session, run_id, run_date_val, slug, "assistant", full_reply, citations, used_web
+                )
+                saved_rows = await list_chat_messages(new_session, run_id=run_id, slug=slug, limit=200)
+                asst_row = next((r for r in saved_rows if r["id"] == asst_id), None)
+                if asst_row:
+                    yield f"data: {json.dumps({'type': 'assistant_message', 'message': _row_to_msg_out(asst_row).model_dump()})}\n\n"
+        except Exception as exc:
+            log.error("run_chat_stream_save_failed", error=str(exc))
+
+        import asyncio
+        asyncio.create_task(_bg_refresh_profile_task())
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 # ── Insights ────────────────────────────────────────────────────────────────────

@@ -18,7 +18,7 @@ import asyncio
 import os
 import uuid
 from contextlib import asynccontextmanager
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -32,11 +32,30 @@ from .routes_admin import router as admin_router
 from .routes_chat import router as chat_router
 from .routes_posts import router as posts_router
 from .routes_search import router as search_router
+from .routes_slack import router as slack_router
 from .routes_trends import router as trends_router
 
 log = get_logger(__name__)
 
 _active_scheduler = None
+_run_lock = asyncio.Lock()  # prevents concurrent daily runs (catch-up + APScheduler race)
+_STALE_RUN_TIMEOUT_HOURS = 2  # runs stuck in-progress longer than this are auto-failed
+
+
+async def _cleanup_stale_runs() -> None:
+    """Mark any in-progress run that has been running for over _STALE_RUN_TIMEOUT_HOURS as failed."""
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=_STALE_RUN_TIMEOUT_HOURS)
+    async with _get_factory()() as session:
+        stale = await get_stale_runs(session)
+        for run in stale:
+            started = run.started_at
+            if started is None:
+                continue
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+            if started < cutoff:
+                await update_run_state(session, run.run_id, "failed", None, 0, "TIMEOUT: run exceeded 2-hour limit")
+                log.warning("stale_run_timed_out", run_id=run.run_id, state=run.state, started_at=run.started_at)
 
 
 @asynccontextmanager
@@ -72,6 +91,14 @@ async def lifespan(app: FastAPI):
             id="daily_trend_run",
             replace_existing=True,
         )
+        # Clean up runs that got stuck in-progress (e.g. LLM timeout, process hang)
+        scheduler.add_job(
+            _cleanup_stale_runs,
+            "interval",
+            minutes=30,
+            id="stale_run_cleanup",
+            replace_existing=True,
+        )
         scheduler.start()
         _active_scheduler = scheduler
         log.info(
@@ -105,22 +132,27 @@ async def lifespan(app: FastAPI):
 
 
 async def _scheduled_run() -> None:
-    settings = get_settings()
-    topic_cfg = get_topic_config()
-    today = date.today()
+    if _run_lock.locked():
+        log.info("scheduled_run_skipped_already_running")
+        return
 
-    async with _get_factory()() as session:
-        if await run_exists_for_date(session, today, topic_cfg.topic):
-            log.info("scheduled_run_skipped_already_exists", date=today.isoformat())
-            return
+    async with _run_lock:
+        settings = get_settings()
+        topic_cfg = get_topic_config()
+        today = date.today()
 
-        run_id = str(uuid.uuid4())
-        await create_run(session, run_id, today, topic_cfg.topic)
+        async with _get_factory()() as session:
+            if await run_exists_for_date(session, today, topic_cfg.topic):
+                log.info("scheduled_run_skipped_already_exists", date=today.isoformat())
+                return
 
-    log.info("scheduled_run_started", run_id=run_id, date=today.isoformat())
+            run_id = str(uuid.uuid4())
+            await create_run(session, run_id, today, topic_cfg.topic)
 
-    async with _get_factory()() as session:
-        await run_pipeline_safe(session, run_id, today, topic_cfg, settings.cache_dir)
+        log.info("scheduled_run_started", run_id=run_id, date=today.isoformat())
+
+        async with _get_factory()() as session:
+            await run_pipeline_safe(session, run_id, today, topic_cfg, settings.cache_dir)
 
 
 app = FastAPI(
@@ -148,3 +180,4 @@ app.include_router(admin_router)
 app.include_router(search_router)
 app.include_router(chat_router)
 app.include_router(posts_router)
+app.include_router(slack_router)
