@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useRef, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { Search, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useSearchMode } from '@/context/SearchModeContext';
@@ -25,9 +25,8 @@ interface SearchBarProps {
 }
 
 export default function SearchBar({ onClear, initialQuery }: SearchBarProps) {
-  const { activePhase, activeTopic, activeError, activeIsCached, activeRunId, startSearch, cancelActiveSearch } = useSearchMode();
+  const { activePhase, activeTopic, activeError, activeRunId, startSearch, cancelActiveSearch } = useSearchMode();
   const [query, setQuery] = useState(initialQuery ?? '');
-  const didAutoSearch = useRef(false);
 
   const isSearching = activePhase !== 'idle' && !TERMINAL.includes(activePhase);
   const isDone = activePhase === 'completed' || activePhase === 'completed_with_warnings';
@@ -38,15 +37,6 @@ export default function SearchBar({ onClear, initialQuery }: SearchBarProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTopic]);
 
-  // Auto-search from initialQuery on first mount, but only if no search is already in flight
-  useEffect(() => {
-    if (initialQuery && !didAutoSearch.current && !activeRunId && activePhase === 'idle') {
-      didAutoSearch.current = true;
-      void startSearch(initialQuery);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     const trimmed = query.trim();
@@ -55,7 +45,7 @@ export default function SearchBar({ onClear, initialQuery }: SearchBarProps) {
     url.searchParams.set('q', trimmed);
     url.searchParams.delete('t');
     window.history.pushState({}, '', url.toString());
-    void startSearch(trimmed);
+    void startSearch(trimmed, true);
   }
 
   function handleClear() {
@@ -103,15 +93,6 @@ export default function SearchBar({ onClear, initialQuery }: SearchBarProps) {
         <div className="flex items-center gap-2 text-[11px] font-mono text-on-surface-variant pl-1">
           {isSearching && <span className="w-3 h-3 border-2 border-primary border-t-transparent animate-spin" />}
           <span className="label-bold text-[10px]">{PHASE_LABELS[activePhase]}</span>
-          {activeIsCached && isDone && (
-            <>
-              <span className="text-outline-variant">·</span>
-              <span className="text-outline">Cached result</span>
-              <button onClick={() => void startSearch(activeTopic, true)} className="text-primary hover:underline label-bold text-[10px]">
-                Refresh
-              </button>
-            </>
-          )}
         </div>
       )}
 
