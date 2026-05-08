@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request, Response
 
+from ..auth_password import verify_password
 from ..config import get_settings
 from ..storage import create_session, delete_session, get_user_by_username
-from .deps_auth import CurrentUser, SessionDep, pwd_context
+from .deps_auth import CurrentUser, SessionDep
 from .schemas import LoginIn, MeOut
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -14,7 +15,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 async def login(body: LoginIn, response: Response, session: SessionDep) -> MeOut:
     settings = get_settings()
     user = await get_user_by_username(session, body.username)
-    if not user or not pwd_context.verify(body.password, user.password):
+    if not user or not verify_password(body.password, user.password):
         raise HTTPException(status_code=401, detail="invalid credentials")
     token = await create_session(session, user.username)
     response.set_cookie(
