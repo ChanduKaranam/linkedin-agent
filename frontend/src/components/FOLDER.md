@@ -34,20 +34,23 @@ Reusable React components. All are client-only (no server components — Vite SP
 - **`input-field`** = surface-container-low bg, outline-variant border, focus border-primary.
 
 ## Last Session Changes
-**Session date:** 2026-05-06
+**Session date:** 2026-05-08
 
 **Changes made:**
-- `PostEditor.tsx` — in the `useEffect([post.id])` reset block, added `setPhotoUrl(prev => { if (prev) URL.revokeObjectURL(prev); return null; })` alongside the existing `setPhotoDataUrl(null)`. Previously only `photoDataUrl` was cleared; `photoUrl` (the blob URL driving the thumbnail `<img>`) was left set. When a user added a photo then triggered a post-id change (e.g. regenerated the post), the thumbnail remained visible but `photoDataUrl` was null — clicking Publish sent no image to LinkedIn.
+- `ChatPanel.tsx` — added `readerRef` (a `useRef<ReadableStreamDefaultReader>`) to hold the active SSE stream reader. A new `useEffect(() => () => { readerRef.current?.cancel() }, [chatApiBase])` cancels the reader when `chatApiBase` changes or the component unmounts. Previously the reader would continue reading after unmount, calling `setMessages` on a dead component (React "Can't perform state update on unmounted component" warnings). Initial messages/insights fetches now use `AbortController`. The `catch` block now checks `err.name !== 'AbortError'` to avoid showing "Network error" on intentional cancellation.
+- `PostLibrary.tsx` — replaced `let cancelled = false` / `if (cancelled) return` pattern in the per-post stats fetch with a proper `AbortController`. The old pattern prevented state updates but still let all network requests complete. Now `ac.abort()` cancels in-flight fetches when the component re-renders with new `posts` data.
+- `ScheduleEditor.tsx` — changed fallback error message from "Could not save. Is DEBUG=true set?" to "Could not save — backend unreachable." The old message was misleading (the endpoint doesn't require `DEBUG=true`).
 
-**Reason:** User reported images added before publish weren't showing up on LinkedIn. The thumbnail preview gave false confidence the image was still attached.
+**Reason:** (1) `ChatPanel` stream reader was not cancelled on navigation, causing stale state updates. (2) `PostLibrary` stats fetch was spawning many requests (2 per post, up to 200 posts = 400 requests) that couldn't be cancelled. (3) `ScheduleEditor` error text confused users into thinking they needed to set a debug flag.
 
-**Outcome:** Fix is in place. Uses functional `setPhotoUrl` updater to safely revoke the old blob URL inside the effect without needing `photoUrl` as a dependency.
+**Outcome:** All three changes working. No TypeScript errors (`tsc --noEmit` passes). The `AbortController` changes improve network hygiene — cancelled requests show as "cancelled" in browser DevTools Network tab rather than completing silently.
 
-**Watch out for:** If `post.id` changes immediately after a user selects a photo (e.g. they click Regenerate right after adding an image), the photo will be cleared. This is intentional — the new generated post is a different document. The user must re-select the photo for the new post.
+**Watch out for:** `ChatPanel` still auto-saves insights (≥30 chars) after each assistant reply. This is a fire-and-forget POST that isn't cancelled with `AbortController`. If the user navigates away mid-stream, the insight POST may still fire. This is acceptable since insights are saved to the backend and appear on next page load. The `readerRef.cancel()` cleanup only covers the SSE reader, not this fire-and-forget fetch.
 
 ## Change Log
 | Date | File(s) Changed | Summary |
 |---|---|---|
+| 2026-05-08 | `ChatPanel.tsx`, `PostLibrary.tsx`, `ScheduleEditor.tsx` | Stream reader cancel on unmount; AbortController for stats fetch; fixed misleading ScheduleEditor error message |
 | 2026-05-06 | `PostEditor.tsx` | Fixed photoUrl not cleared on post.id change — thumbnail stayed visible but data was null, causing publish to silently send no image |
 | 2026-05-01 | `ChatPanel.tsx`, `PostEditor.tsx` (new), `PostLibrary.tsx` (new), `PostStudio.tsx`, `NewPostDialog.tsx` (new), `layout/Navbar.tsx` | Auto-save insight fix; PostEditor extracted; PostLibrary onFirstLoad fix; NewPostDialog unified searchable picker; removed Insights nav |
 | 2026-05-01 | All files | Initial creation — migrated and restyled from Next.js frontend components |

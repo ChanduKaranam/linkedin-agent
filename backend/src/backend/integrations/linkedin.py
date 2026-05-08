@@ -13,6 +13,29 @@ from ..config import get_settings
 from ..logging_setup import get_logger
 from ..storage import clear_linkedin_account, get_linkedin_account, upsert_linkedin_account
 
+_FERNET_PREFIX = "fernet:"
+
+
+def _encrypt_token(plaintext: str) -> str:
+    key = get_settings().linkedin_token_key
+    if not key:
+        return plaintext
+    from cryptography.fernet import Fernet
+    return _FERNET_PREFIX + Fernet(key.encode()).encrypt(plaintext.encode()).decode()
+
+
+def _decrypt_token(stored: str) -> str:
+    if not stored.startswith(_FERNET_PREFIX):
+        return stored  # plaintext (pre-encryption or key not set)
+    key = get_settings().linkedin_token_key
+    if not key:
+        return stored  # key missing — can't decrypt, return raw (will cause API errors, not a crash)
+    from cryptography.fernet import Fernet, InvalidToken
+    try:
+        return Fernet(key.encode()).decrypt(stored[len(_FERNET_PREFIX):].encode()).decode()
+    except InvalidToken:
+        return stored
+
 log = get_logger(__name__)
 
 _LI_AUTH_URL = "https://www.linkedin.com/oauth/v2/authorization"
@@ -134,7 +157,7 @@ async def oauth_callback(session: AsyncSession, code: str) -> dict:
     member_urn = f"urn:li:person:{member_id}"
     member_name = _extract_member_name(me_data)
 
-    await upsert_linkedin_account(session, access_token, refresh_token, expires_at, member_urn, member_name)
+    await upsert_linkedin_account(session, _encrypt_token(access_token), refresh_token and _encrypt_token(refresh_token), expires_at, member_urn, member_name)
     log.info("linkedin_oauth_connected", member_urn=member_urn, member_name=member_name)
     return {"member_urn": member_urn, "member_name": member_name, "expires_at": expires_at.isoformat()}
 
@@ -150,31 +173,29 @@ async def get_connection_status(session: AsyncSession) -> dict:
     member_name: str | None = account.get("member_name")
     if connected and not member_name:
         try:
+            token = _decrypt_token(account["access_token"])
             async with httpx.AsyncClient(timeout=10) as client:
                 me_resp = await client.get(
                     _LI_ME_URL,
-                    headers={"Authorization": f"Bearer {account['access_token']}"},
+                    headers={"Authorization": f"Bearer {token}"},
                 )
-                log.info("linkedin_userinfo_fetch", status=me_resp.status_code)
                 if me_resp.status_code == 200:
                     me_data = me_resp.json()
-                    log.info("linkedin_userinfo_fields", fields=list(me_data.keys()))
                     fetched_name = _extract_member_name(me_data)
                     if fetched_name:
                         member_name = fetched_name
-                        # Persist so future calls don't need the live fetch
                         await upsert_linkedin_account(
                             session,
-                            account["access_token"],
+                            account["access_token"],  # already encrypted
                             account.get("refresh_token"),
                             account["expires_at"],
                             account["member_urn"],
                             fetched_name,
                         )
                     else:
-                        log.warning("linkedin_userinfo_no_name", fields=list(me_data.keys()), data=me_data)
+                        log.warning("linkedin_userinfo_no_name", field_count=len(me_data))
                 else:
-                    log.warning("linkedin_userinfo_failed", status=me_resp.status_code, body=me_resp.text[:200])
+                    log.warning("linkedin_userinfo_failed", status=me_resp.status_code)
         except Exception as exc:
             log.warning("linkedin_userinfo_exception", error=str(exc))
     return {
@@ -266,10 +287,12 @@ async def publish_post(
             "Please shorten the post in the editor and save before publishing."
         )
 
+    token = _decrypt_token(account["access_token"])
+
     image_urn: str | None = None
     if image_data_url:
         image_urn = await _upload_linkedin_image(
-            account["access_token"], account["member_urn"], image_data_url
+            token, account["member_urn"], image_data_url
         )
 
     def _build_payload(commentary: str) -> dict:
@@ -310,7 +333,7 @@ async def publish_post(
                 _LI_POSTS_URL,
                 content=body_bytes,
                 headers={
-                    "Authorization": f"Bearer {account['access_token']}",
+                    "Authorization": f"Bearer {token}",
                     "LinkedIn-Version": _LI_VERSION,
                     "X-Restli-Protocol-Version": "2.0.0",
                     "Content-Type": "application/json; charset=utf-8",
@@ -355,12 +378,13 @@ async def delete_linkedin_post(session: AsyncSession, post_urn: str) -> None:
     if account["expires_at"] <= now:
         raise LinkedInAuthError("LinkedIn access token has expired.")
 
+    token = _decrypt_token(account["access_token"])
     encoded_urn = urllib.parse.quote(post_urn, safe="")
     async with httpx.AsyncClient(timeout=20) as client:
         resp = await client.delete(
             f"{_LI_POSTS_URL}/{encoded_urn}",
             headers={
-                "Authorization": f"Bearer {account['access_token']}",
+                "Authorization": f"Bearer {token}",
                 "LinkedIn-Version": _LI_VERSION,
                 "X-Restli-Protocol-Version": "2.0.0",
             },

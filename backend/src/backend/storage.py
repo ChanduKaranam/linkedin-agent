@@ -4,9 +4,10 @@ import secrets
 from datetime import date, datetime, timezone
 
 from sqlalchemy import and_, case, delete, func, select, tuple_, update
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .db_models import AuthSession, ChatMessage, Chunk, GeneratedPost, Insight, LinkedInAccount, Run, StyleProfile, StyleSample, Trend, User
+from .db_models import AuthSession, ChatMessage, Chunk, GeneratedPost, Insight, LinkedInAccount, LogEvent, Run, StyleProfile, StyleSample, Trend, User
 from .logging_setup import get_logger
 from .models import PersistedTrend, RunState, Source
 
@@ -132,6 +133,9 @@ async def update_run_state(
         if state in ("completed", "failed", "completed_with_warnings")
         else None
     )
+    # Truncate error text — full tracebacks go to log_events
+    if last_error and len(last_error) > 2000:
+        last_error = last_error[:1997] + "..."
     values: dict = {"state": state, "finished_at": finished_at, "last_error": last_error}
     if trend_count is not None:
         values["trend_count"] = trend_count
@@ -228,6 +232,13 @@ def _orm_to_run(row: Run) -> RunState:
 
 # ── Trends ────────────────────────────────────────────────────────────────────
 
+async def count_trends_for_run(session: AsyncSession, run_id: str) -> int:
+    result = await session.execute(
+        select(func.count()).select_from(Trend).where(Trend.run_id == run_id)
+    )
+    return result.scalar_one() or 0
+
+
 async def upsert_trend(session: AsyncSession, trend: PersistedTrend) -> int:
     """Insert trend, or bump seen_again if fingerprint exists within window. Returns new trend id."""
     from .config import get_topic_config
@@ -267,6 +278,27 @@ async def upsert_trend(session: AsyncSession, trend: PersistedTrend) -> int:
     return new_trend.id
 
 
+async def get_trend_summaries_for_run(
+    session: AsyncSession, run_id: str
+) -> list[tuple[str, str, str, int]]:
+    """Lightweight projection for list endpoints — avoids loading detailed_markdown."""
+    rows = (await session.execute(
+        select(Trend.slug, Trend.headline, Trend.one_liner, func.jsonb_array_length(Trend.sources_json))
+        .where(Trend.run_id == run_id)
+        .order_by(Trend.id)
+    )).all()
+    return [(slug, headline, one_liner, src_count or 0) for slug, headline, one_liner, src_count in rows]
+
+
+async def get_trend_by_run_and_slug(
+    session: AsyncSession, run_id: str, slug: str
+) -> PersistedTrend | None:
+    row = (await session.execute(
+        select(Trend).where(Trend.run_id == run_id, Trend.slug == slug)
+    )).scalar_one_or_none()
+    return _orm_to_trend(row) if row else None
+
+
 async def get_trends_for_run(session: AsyncSession, run_id: str) -> list[PersistedTrend]:
     rows = (await session.execute(
         select(Trend).where(Trend.run_id == run_id).order_by(Trend.id)
@@ -291,11 +323,12 @@ async def get_trend_by_slug(
 
 
 async def get_available_dates(session: AsyncSession) -> list[date]:
+    # Query dates directly from the trends table so that partially-completed or
+    # stuck runs don't hide real trend data that was already persisted.
     rows = (await session.execute(
-        select(Run.run_date)
-        .where(Run.kind == "daily", Run.state.in_(["completed", "completed_with_warnings"]))
+        select(Trend.run_date)
         .distinct()
-        .order_by(Run.run_date.desc())
+        .order_by(Trend.run_date.desc())
     )).scalars().all()
     return list(rows)
 
@@ -579,11 +612,24 @@ async def add_style_sample(
     source: str,
     text: str,
     source_ref: int | None = None,
-) -> int:
+) -> int | None:
+    import hashlib
+    text_hash = hashlib.md5(text.encode("utf-8")).hexdigest()
+    # Skip duplicate samples within the last 90 days
+    from datetime import timedelta
+    cutoff = datetime.now(timezone.utc) - timedelta(days=90)
+    existing = (await session.execute(
+        select(StyleSample.id)
+        .where(StyleSample.text_hash == text_hash, StyleSample.created_at >= cutoff)
+        .limit(1)
+    )).scalar_one_or_none()
+    if existing is not None:
+        return None
     sample = StyleSample(
         source=source,
         source_ref=source_ref,
         text=text,
+        text_hash=text_hash,
         created_at=datetime.now(timezone.utc),
     )
     session.add(sample)
@@ -864,31 +910,171 @@ async def get_user_by_username(session: AsyncSession, username: str) -> User | N
     return (await session.execute(select(User).where(User.username == username))).scalar_one_or_none()
 
 
+_SESSION_TTL_DAYS = 30
+
+
 async def create_session(session: AsyncSession, username: str) -> str:
+    from datetime import timedelta
     token = secrets.token_urlsafe(32)
     now = datetime.now(timezone.utc)
-    session.add(AuthSession(token=token, username=username, created_at=now, last_seen_at=now))
+    session.add(AuthSession(
+        token=token,
+        username=username,
+        created_at=now,
+        last_seen_at=now,
+        expires_at=now + timedelta(days=_SESSION_TTL_DAYS),
+    ))
     await session.commit()
     return token
 
 
 async def get_session_user(session: AsyncSession, token: str) -> User | None:
-    row = (
-        await session.execute(
-            select(AuthSession).where(AuthSession.token == token)
-        )
-    ).scalar_one_or_none()
+    try:
+        row = (
+            await session.execute(
+                select(AuthSession).where(AuthSession.token == token)
+            )
+        ).scalar_one_or_none()
+    except (SQLAlchemyError, ConnectionResetError) as exc:
+        # Render/Neon can occasionally reset TLS handshakes; retry once.
+        log.warning("auth_session_lookup_retry", error=str(exc))
+        await session.rollback()
+        row = (
+            await session.execute(
+                select(AuthSession).where(AuthSession.token == token)
+            )
+        ).scalar_one_or_none()
     if row is None:
         return None
-    await session.execute(
-        update(AuthSession)
-        .where(AuthSession.token == token)
-        .values(last_seen_at=datetime.now(timezone.utc))
+    # Reject expired sessions (may not have expires_at if created before 0008 migration)
+    if hasattr(row, "expires_at") and row.expires_at and row.expires_at < datetime.now(timezone.utc):
+        await session.execute(delete(AuthSession).where(AuthSession.token == token))
+        await session.commit()
+        return None
+    # Avoid writing on every single authenticated request; this endpoint is
+    # hot under polling UIs and can saturate the DB pool.
+    from .config import get_settings
+    from datetime import timedelta
+    now = datetime.now(timezone.utc)
+    min_interval = timedelta(seconds=max(get_settings().auth_last_seen_update_seconds, 30))
+    if row.last_seen_at is None or (now - row.last_seen_at) >= min_interval:
+        await session.execute(
+            update(AuthSession)
+            .where(AuthSession.token == token)
+            .values(last_seen_at=now)
+        )
+        await session.commit()
+    return await get_user_by_username(session, row.username)
+
+
+async def get_session_username(session: AsyncSession, token: str) -> str | None:
+    """Lightweight auth check used by request dependency.
+
+    Avoids a join/query on users for every protected request. Returns username if
+    token exists and is not expired, otherwise None.
+    """
+    try:
+        row = (
+            await session.execute(
+                select(AuthSession).where(AuthSession.token == token)
+            )
+        ).scalar_one_or_none()
+    except (SQLAlchemyError, ConnectionResetError) as exc:
+        log.warning("auth_session_username_retry", error=str(exc))
+        await session.rollback()
+        row = (
+            await session.execute(
+                select(AuthSession).where(AuthSession.token == token)
+            )
+        ).scalar_one_or_none()
+    if row is None:
+        return None
+    if hasattr(row, "expires_at") and row.expires_at and row.expires_at < datetime.now(timezone.utc):
+        await session.execute(delete(AuthSession).where(AuthSession.token == token))
+        await session.commit()
+        return None
+
+    from .config import get_settings
+    from datetime import timedelta
+    now = datetime.now(timezone.utc)
+    min_interval = timedelta(seconds=max(get_settings().auth_last_seen_update_seconds, 30))
+    if row.last_seen_at is None or (now - row.last_seen_at) >= min_interval:
+        await session.execute(
+            update(AuthSession)
+            .where(AuthSession.token == token)
+            .values(last_seen_at=now)
+        )
+        await session.commit()
+    return row.username
+
+
+async def purge_expired_sessions(session: AsyncSession) -> int:
+    result = await session.execute(
+        delete(AuthSession).where(AuthSession.expires_at < datetime.now(timezone.utc))
     )
     await session.commit()
-    return await get_user_by_username(session, row.username)
+    return result.rowcount or 0
 
 
 async def delete_session(session: AsyncSession, token: str) -> None:
     await session.execute(delete(AuthSession).where(AuthSession.token == token))
     await session.commit()
+
+
+# ── Log events ──────────────────────────────────────────────────────────────
+
+async def purge_old_logs(session: AsyncSession, info_days: int = 7, warn_days: int = 30) -> dict[str, int]:
+    """Delete log_events rows older than level-specific retention windows.
+
+    INFO/DEBUG → info_days; WARNING/ERROR/CRITICAL → warn_days.
+    """
+    from datetime import timedelta
+
+    now = datetime.now(timezone.utc)
+    info_cutoff = now - timedelta(days=info_days)
+    warn_cutoff = now - timedelta(days=warn_days)
+
+    info_result = await session.execute(
+        delete(LogEvent).where(
+            LogEvent.level.in_(["DEBUG", "INFO"]),
+            LogEvent.ts < info_cutoff,
+        )
+    )
+    warn_result = await session.execute(
+        delete(LogEvent).where(
+            LogEvent.level.in_(["WARNING", "ERROR", "CRITICAL"]),
+            LogEvent.ts < warn_cutoff,
+        )
+    )
+    await session.commit()
+    return {
+        "log_events_info": info_result.rowcount or 0,
+        "log_events_warn": warn_result.rowcount or 0,
+    }
+
+
+async def get_log_events(
+    session: AsyncSession,
+    level: str | None = None,
+    logger_name: str | None = None,
+    since: datetime | None = None,
+    q: str | None = None,
+    limit: int = 200,
+    offset: int = 0,
+) -> list[LogEvent]:
+    stmt = select(LogEvent).order_by(LogEvent.ts.desc()).limit(limit).offset(offset)
+    if level:
+        stmt = stmt.where(LogEvent.level == level.upper())
+    if logger_name:
+        stmt = stmt.where(LogEvent.logger_name.ilike(f"%{logger_name}%"))
+    if since:
+        stmt = stmt.where(LogEvent.ts >= since)
+    if q:
+        from sqlalchemy import or_
+        stmt = stmt.where(
+            or_(
+                LogEvent.event.ilike(f"%{q}%"),
+                LogEvent.message.ilike(f"%{q}%"),
+            )
+        )
+    return list((await session.execute(stmt)).scalars().all())

@@ -7,14 +7,14 @@ from collections import defaultdict, deque
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_settings, get_topic_config
 from ..db import _get_factory, get_session
 from ..logging_setup import get_logger
 from ..pipeline import build_adhoc_topic_config, run_search_synthesis_safe
-from ..storage import create_run, find_adhoc_run, get_run, get_trends_for_run, list_adhoc_runs
+from ..storage import create_run, find_adhoc_run, get_run, get_trend_by_run_and_slug, get_trend_summaries_for_run, list_adhoc_runs
 from .schemas import SearchHistoryItem, SearchRequest, SearchResponse, SearchRunStatus, TrendDetailOut, TrendListItem
 
 router = APIRouter()
@@ -23,6 +23,7 @@ log = get_logger(__name__)
 _RATE_LIMIT = 20
 _RATE_WINDOW = 3600
 _ip_timestamps: dict[str, deque[float]] = defaultdict(deque)
+_IP_MAX_ENTRIES = 5000
 _INJECTION_RE = re.compile(r"<SOURCES>|</SOURCES>|<INST>|<SYS>|\[INST\]|\[SYS\]", re.IGNORECASE)
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -41,6 +42,10 @@ def _rate_limit_check(ip: str) -> None:
     q = _ip_timestamps[ip]
     while q and q[0] < window_start:
         q.popleft()
+    # Evict oldest IP entry if dict is at cap to bound memory
+    if ip not in _ip_timestamps and len(_ip_timestamps) >= _IP_MAX_ENTRIES:
+        oldest = next(iter(_ip_timestamps))
+        del _ip_timestamps[oldest]
     if len(q) >= _RATE_LIMIT:
         raise HTTPException(
             status_code=429,
@@ -90,15 +95,23 @@ async def search(
     adhoc_cfg = build_adhoc_topic_config(topic, base_cfg)
 
     await create_run(session, run_id, today, stored_topic, kind="adhoc")
-    background_tasks.add_task(_run_search_background, run_id, today, adhoc_cfg, settings.cache_dir)
-    log.info("search_run_started", topic=topic, run_id=run_id, force=body.force)
+    if settings.run_pipeline_in_web_process:
+        background_tasks.add_task(_run_search_background, run_id, today, adhoc_cfg, settings.cache_dir)
+        log.info("search_run_started", topic=topic, run_id=run_id, force=body.force)
+    else:
+        log.info("search_run_queued_for_worker", topic=topic, run_id=run_id, force=body.force)
     return SearchResponse(run_id=run_id, run_date=today, topic=topic, cached=False)
 
 
 @router.get("/search/history", response_model=list[SearchHistoryItem])
-async def search_history(session: SessionDep, limit: int = 50) -> list[SearchHistoryItem]:
-    runs = await list_adhoc_runs(session, limit=limit)
-    return [
+async def search_history(session: SessionDep, limit: int = Query(default=50, ge=1, le=100)) -> list[SearchHistoryItem]:
+    try:
+        runs = await list_adhoc_runs(session, limit=limit)
+    except Exception as exc:
+        # Fail soft to avoid breaking the UI loop during transient DB pressure.
+        log.warning("search_history_query_failed", limit=limit, error=str(exc))
+        return []
+    items = [
         SearchHistoryItem(
             run_id=r.run_id,
             topic=r.topic.split("#")[0],
@@ -109,6 +122,8 @@ async def search_history(session: SessionDep, limit: int = 50) -> list[SearchHis
         )
         for r in runs
     ]
+    log.info("search_history_listed", count=len(items), limit=limit)
+    return items
 
 
 @router.get("/search/runs/{run_id}", response_model=SearchRunStatus)
@@ -130,10 +145,10 @@ async def search_run_trends(run_id: str, session: SessionDep) -> list[TrendListI
     run = await get_run(session, run_id)
     if not run or run.kind != "adhoc":
         raise HTTPException(status_code=404, detail="Search run not found.")
-    trends = await get_trends_for_run(session, run_id)
+    summaries = await get_trend_summaries_for_run(session, run_id)
     return [
-        TrendListItem(slug=t.slug, headline=t.headline, one_liner=t.one_liner, source_count=len(t.sources))
-        for t in trends
+        TrendListItem(slug=slug, headline=headline, one_liner=one_liner, source_count=src_count)
+        for slug, headline, one_liner, src_count in summaries
     ]
 
 
@@ -142,8 +157,7 @@ async def search_run_trend_detail(run_id: str, slug: str, session: SessionDep) -
     run = await get_run(session, run_id)
     if not run or run.kind != "adhoc":
         raise HTTPException(status_code=404, detail="Search run not found.")
-    trends = await get_trends_for_run(session, run_id)
-    trend = next((t for t in trends if t.slug == slug), None)
+    trend = await get_trend_by_run_and_slug(session, run_id, slug)
     if not trend:
         raise HTTPException(status_code=404, detail="Trend not found.")
     return TrendDetailOut(

@@ -13,7 +13,7 @@ Vite 6 + React 19 + React Router v7 SPA frontend for the LinkedIn Agent. Replace
 ## Key Files
 | File | Purpose |
 |---|---|
-| `server.ts` | Express server: 25+ proxy routes forwarding `/api/*` to FastAPI backend, plus Vite middleware in dev or static serving in prod. **Critical:** X-Forwarded-For injection on search/chat POSTs; 120s timeout on post generation; `/api/admin/linkedin/authorize` is a redirect, not a fetch. Body limit is 25mb (required for image uploads). Publish endpoint timeout is 90s (image upload + post creation can take up to 60s). |
+| `server.ts` | Express server: 25+ proxy routes forwarding `/api/*` to FastAPI backend, plus Vite middleware in dev or static serving in prod. **Critical:** X-Forwarded-For injection on search/chat POSTs; 120s timeout on post generation; `/api/admin/linkedin/authorize` is a redirect, not a fetch. Body limit is 10mb. SSE proxy forwards Cookie header (auth required). `http.createServer` with `keepAliveTimeout=65s`. Global error handler + `unhandledRejection` handler. |
 | `package.json` | npm deps and scripts (`dev`, `build`, `start`, `lint`). Key deps: react-markdown, rehype-sanitize, @tailwindcss/typography, tailwindcss-animate, motion, lucide-react, react-router-dom. |
 | `vite.config.ts` | Vite + Tailwind v4 plugin + `@` alias → `src/` |
 | `tsconfig.json` | Strict TS, `@/*` paths → `./src/*`, bundler module resolution |
@@ -37,20 +37,20 @@ npm run lint     # tsc --noEmit
 - **`@/*` alias** points to `src/` — used in every import. Configured in both `tsconfig.json` and `vite.config.ts`.
 
 ## Last Session Changes
-**Session date:** 2026-05-06
+**Session date:** 2026-05-08
 
 **Changes made:**
-- `server.ts` — raised Express JSON body limit from default 100kb to `25mb`. Previously any image larger than ~75KB (base64 overhead: 1.33×) was silently rejected by Express before reaching the proxy handler, causing LinkedIn publish to go through without the image.
-- `server.ts` — raised publish endpoint proxy timeout from 20s to 90s. LinkedIn image upload involves two round trips (initializeUpload + PUT bytes) plus the post creation call; backend can take up to 60s for large images, so 20s was reliably too short.
+- `server.ts` — (1) SSE proxy (`sseProxy`) now forwards the `Cookie` header to the backend. This was a silent auth bug: all streaming chat requests were unauthenticated because the SSE proxy didn't pass cookies, unlike the regular `proxy()` function. (2) Body limit reduced from 25mb → 10mb (covers base64 images up to ~7.5MB; 25mb was excessive and a DoS amplifier). (3) Replaced bare `app.listen()` with `http.createServer(app)` + `server.keepAliveTimeout=65s`, `server.headersTimeout=70s` to prevent 502s from reverse proxies that timeout idle connections. (4) Added global Express error handler `(err, req, res, next)`. (5) Added `process.on('unhandledRejection')` handler. (6) Changed `startServer()` to `void startServer()` (was bare call, rejection would be silent). (7) Added proxy route for `GET /api/admin/logs` (new backend endpoint from Phase 0).
 
-**Reason:** Users uploading images for LinkedIn posts saw the post publish successfully but without the attached image. Root cause was a two-part bug: (1) Express body size limit rejecting large images; (2) a stale-state bug in `PostEditor.tsx` where `photoDataUrl` was cleared on post change but the thumbnail preview (`photoUrl`) was not, so users saw the image preview but the data was gone.
+**Reason:** Several reliability and security fixes: SSE cookie omission meant chat streaming silently failed auth (users might not have noticed if the backend happened to not enforce auth in some paths); the 25mb body limit was a security concern; missing error handlers meant crashes were silent in production; keepAlive timeouts are needed when behind nginx/Vercel.
 
-**Outcome:** Both bugs fixed. Frontend server must be restarted to pick up `server.ts` changes.
+**Outcome:** All changes working. TypeScript (`tsc --noEmit`) passes. Frontend server must be restarted to apply.
 
-**Watch out for:** Express's `express.json({ limit: '25mb' })` only controls JSON body parsing. If file upload is ever changed to `multipart/form-data`, a separate `multer` or similar limit applies. The 90s proxy timeout must stay above the backend's combined `httpx` timeouts (40s upload + 20s post = 60s max).
+**Watch out for:** The body limit reduction (25mb → 10mb) could break LinkedIn image upload if users try to upload images > ~7.5MB. LinkedIn's own limit is 8MB, so typical images are fine. If this becomes an issue, raise to 12mb. The SSE proxy now correctly requires the user to be authenticated for chat streaming — this was always the intended behavior.
 
 ## Change Log
 | Date | File(s) Changed | Summary |
 |---|---|---|
+| 2026-05-08 | `server.ts` | Fixed SSE cookie forwarding (auth bug); reduced body limit to 10mb; added keepAlive timeouts + error handlers; added /api/admin/logs route |
 | 2026-05-06 | `server.ts` | Raised Express JSON body limit to 25mb and publish timeout to 90s to fix LinkedIn image upload being dropped |
 | 2026-05-01 | All files | Full migration from Next.js to Vite + Urban Mono; wired all backend features; Blog/LinkedIn post library + editor; auto-insight saving; post generation timeout fixes |

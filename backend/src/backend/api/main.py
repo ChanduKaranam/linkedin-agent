@@ -25,9 +25,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from ..config import get_settings, get_topic_config
 from ..db import _get_factory, dispose_engine
-from ..logging_setup import get_logger, setup_logging
+from ..logging_setup import get_logger, log_worker_metrics, setup_logging, start_log_worker, stop_log_worker
 from ..pipeline import run_pipeline_safe
-from ..storage import create_run, get_stale_runs, init_db, purge_data_older_than, run_exists_for_date, update_run_state
+from ..storage import count_trends_for_run, create_run, get_stale_runs, init_db, purge_data_older_than, purge_expired_sessions, purge_old_logs, run_exists_for_date, update_run_state
 from .deps_auth import require_user
 from .routes_admin import router as admin_router
 from .routes_auth import router as auth_router
@@ -41,12 +41,39 @@ log = get_logger(__name__)
 
 _active_scheduler = None
 _run_lock = asyncio.Lock()  # prevents concurrent daily runs (catch-up + APScheduler race)
+_catchup_task: asyncio.Task | None = None
 _STALE_RUN_TIMEOUT_HOURS = 2  # runs stuck in-progress longer than this are auto-failed
 _RETENTION_DAYS = 15  # keep this many days of daily trend data; older data is purged
 
 
+def _runtime_metrics() -> dict[str, int | float]:
+    rss_mb = 0.0
+    try:
+        import resource  # Unix (Render)
+        rss_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        rss_mb = round(rss_kb / 1024, 2)
+    except Exception:
+        pass
+    return {
+        "rss_mb": rss_mb,
+        **log_worker_metrics(),
+    }
+
+
+async def _resolve_stale_run(session, run) -> None:
+    """Mark a stuck run completed_with_warnings if it has trends, otherwise failed."""
+    trend_count = await count_trends_for_run(session, run.run_id)
+    if trend_count > 0:
+        await update_run_state(session, run.run_id, "completed_with_warnings", trend_count, 0,
+                               "Run timed out after persisting partial trends")
+        log.warning("stale_run_completed_partial", run_id=run.run_id, state=run.state, trends=trend_count)
+    else:
+        await update_run_state(session, run.run_id, "failed", 0, 0, "TIMEOUT: run exceeded 2-hour limit")
+        log.warning("stale_run_timed_out", run_id=run.run_id, state=run.state)
+
+
 async def _cleanup_stale_runs() -> None:
-    """Mark any in-progress run that has been running for over _STALE_RUN_TIMEOUT_HOURS as failed."""
+    """Mark any in-progress run older than _STALE_RUN_TIMEOUT_HOURS as completed or failed."""
     cutoff = datetime.now(timezone.utc) - timedelta(hours=_STALE_RUN_TIMEOUT_HOURS)
     async with _get_factory()() as session:
         stale = await get_stale_runs(session)
@@ -57,8 +84,8 @@ async def _cleanup_stale_runs() -> None:
             if started.tzinfo is None:
                 started = started.replace(tzinfo=timezone.utc)
             if started < cutoff:
-                await update_run_state(session, run.run_id, "failed", None, 0, "TIMEOUT: run exceeded 2-hour limit")
-                log.warning("stale_run_timed_out", run_id=run.run_id, state=run.state, started_at=run.started_at)
+                await _resolve_stale_run(session, run)
+    log.info("stale_run_cleanup_complete", **_runtime_metrics())
 
 
 async def _purge_old_data() -> None:
@@ -75,21 +102,27 @@ async def _purge_old_data() -> None:
     cutoff = today_local - timedelta(days=_RETENTION_DAYS)
     async with _get_factory()() as session:
         counts = await purge_data_older_than(session, cutoff)
+        log_counts = await purge_old_logs(session)
+        expired_sessions = await purge_expired_sessions(session)
     log.info(
         "data_retention_purge",
         cutoff=cutoff.isoformat(),
         retention_days=_RETENTION_DAYS,
+        expired_sessions=expired_sessions,
         **counts,
+        **log_counts,
+        **_runtime_metrics(),
     )
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _active_scheduler
+    global _active_scheduler, _catchup_task
     settings = get_settings()
     setup_logging(settings.logs_dir)
 
     await init_db()
+    await start_log_worker()
 
     # Purge trend data older than retention window on every startup (catch-up for downtime)
     try:
@@ -97,16 +130,15 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         log.warning("startup_retention_purge_failed", error=str(exc))
 
-    # Mark stale in-progress runs from a previous crash
+    # Mark stale in-progress runs from a previous crash — save any partial trends
     async with _get_factory()() as session:
         for stale in await get_stale_runs(session):
-            await update_run_state(session, stale.run_id, "failed", 0, 0, "INTERRUPTED")
-            log.warning("stale_run_marked_failed", run_id=stale.run_id)
+            await _resolve_stale_run(session, stale)
 
     os.environ.setdefault("LITELLM_REQUEST_TIMEOUT", str(settings.litellm_request_timeout))
 
     scheduler = None
-    if settings.enable_inprocess_scheduler:
+    if settings.enable_inprocess_scheduler and settings.run_pipeline_in_web_process:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
         from apscheduler.triggers.cron import CronTrigger
 
@@ -163,13 +195,19 @@ async def lifespan(app: FastAPI):
                 session, date.today(), topic_cfg.topic
             ):
                 log.info("catchup_run_triggered", reason="server_started_after_schedule_time")
-                asyncio.create_task(_scheduled_run())
+                _catchup_task = asyncio.create_task(_scheduled_run())
+                _catchup_task.add_done_callback(
+                    lambda t: t.exception() and log.error("catchup_run_failed", error=str(t.exception()))
+                )
+    elif settings.enable_inprocess_scheduler and not settings.run_pipeline_in_web_process:
+        log.warning("scheduler_disabled_in_web_process", reason="run_pipeline_in_web_process=false")
 
     yield
 
     _active_scheduler = None
     if scheduler:
         scheduler.shutdown(wait=False)
+    await stop_log_worker()
     await dispose_engine()
 
 

@@ -25,8 +25,9 @@ async def index_trend(
     cache_dir: Path,
 ) -> int:
     """Chunk + embed all cached source pages for a trend. Idempotent: replaces existing chunks."""
-    all_chunks: list[Chunk] = []
+    total_chunks = 0
     now = datetime.now(timezone.utc)
+    embed_batch_size = 32
 
     for source in sources:
         cache_file = cache_dir / f"{hashlib.md5(source.url.encode()).hexdigest()}.md"
@@ -47,21 +48,29 @@ async def index_trend(
         )
 
         loop = asyncio.get_event_loop()
-        vectors = await loop.run_in_executor(None, embed_batch, texts)
-        for idx, (text, vec) in enumerate(zip(texts, vectors)):
-            all_chunks.append(Chunk(
-                trend_id=trend_id,
-                run_id=run_id,
-                source_url=source.url,
-                source_title=source.title,
-                source_domain=source.domain,
-                chunk_index=idx,
-                text=text,
-                embedding=vec,
-                created_at=now,
-            ))
+        for start in range(0, len(texts), embed_batch_size):
+            text_batch = texts[start : start + embed_batch_size]
+            vectors = await loop.run_in_executor(None, embed_batch, text_batch)
+            chunk_rows = [
+                Chunk(
+                    trend_id=trend_id,
+                    run_id=run_id,
+                    source_url=source.url,
+                    source_title=source.title,
+                    source_domain=source.domain,
+                    chunk_index=start + idx,
+                    text=text,
+                    embedding=vec,
+                    created_at=now,
+                )
+                for idx, (text, vec) in enumerate(zip(text_batch, vectors))
+            ]
+            session.add_all(chunk_rows)
+            await session.flush()
+            total_chunks += len(chunk_rows)
 
-    session.add_all(all_chunks)
-    await session.commit()
-    log.info("trend_indexed", trend_id=trend_id, chunks=len(all_chunks))
-    return len(all_chunks)
+        # Keep transaction/object memory bounded per source.
+        await session.commit()
+
+    log.info("trend_indexed", trend_id=trend_id, chunks=total_chunks)
+    return total_chunks

@@ -85,17 +85,19 @@ export default function PostLibrary({ kind, activeId, onSelect, onNewPost, refre
   }, [kind, refreshKey, retryTick, loadPosts]);
 
   useEffect(() => {
-    if (posts.length === 0) return;
-    let cancelled = false;
+    const needsStats = sortMode === 'chatted' || sortMode === 'created_linkedin' || sortMode === 'created_blog';
+    if (posts.length === 0 || !needsStats) return;
+    const ac = new AbortController();
     const keys = Array.from(new Set(posts.map((p) => `${p.run_id}::${p.run_date}::${p.slug}`)));
     void Promise.all(
       keys.map(async (key) => {
         const [runId, runDate, slug] = key.split('::');
+        const opts = { signal: ac.signal };
         const [chatRows, postRows] = await Promise.all([
-          fetch(`/api/chat/runs/${runId}/${slug}/messages`)
+          fetch(`/api/chat/runs/${runId}/${slug}/messages`, opts)
             .then((r) => (r.ok ? r.json() : [] as unknown[]))
             .catch(() => [] as unknown[]),
-          fetch(`/api/posts/${runDate}/${slug}`)
+          fetch(`/api/posts/${runDate}/${slug}`, opts)
             .then((r) => (r.ok ? r.json() : [] as Array<{ kind: 'linkedin' | 'blog' }>))
             .catch(() => [] as Array<{ kind: 'linkedin' | 'blog' }>),
         ]);
@@ -106,13 +108,10 @@ export default function PostLibrary({ kind, activeId, onSelect, onNewPost, refre
         }] as const;
       }),
     ).then((rows) => {
-      if (cancelled) return;
-      setContextStats(Object.fromEntries(rows));
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [posts]);
+      if (!ac.signal.aborted) setContextStats(Object.fromEntries(rows));
+    }).catch(() => {});
+    return () => ac.abort();
+  }, [posts, sortMode]);
 
   // Client-side filter — matched against headline, slug, and tags
   const filtered = useMemo(() => {

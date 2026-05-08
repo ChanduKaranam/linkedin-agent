@@ -30,14 +30,27 @@ export default function ChatPanel({ chatApiBase, insightsApiBase }: ChatPanelPro
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
+
+  // Cancel any in-flight stream when chatApiBase changes or component unmounts
+  useEffect(() => {
+    return () => {
+      if (readerRef.current) {
+        readerRef.current.cancel().catch(() => {});
+        readerRef.current = null;
+      }
+    };
+  }, [chatApiBase]);
 
   useEffect(() => {
     setMessages([]);
     setInsights([]);
     setError(null);
     if (!open) return;
-    fetch(`${chatApiBase}/messages`).then((r) => (r.ok ? r.json() : [])).then(setMessages).catch(() => {});
-    fetch(insightsApiBase).then((r) => (r.ok ? r.json() : [])).then(setInsights).catch(() => {});
+    const ac = new AbortController();
+    fetch(`${chatApiBase}/messages`, { signal: ac.signal }).then((r) => (r.ok ? r.json() : [])).then(setMessages).catch(() => {});
+    fetch(insightsApiBase, { signal: ac.signal }).then((r) => (r.ok ? r.json() : [])).then(setInsights).catch(() => {});
+    return () => ac.abort();
   }, [chatApiBase, insightsApiBase, open]);
 
   useEffect(() => {
@@ -92,6 +105,7 @@ export default function ChatPanel({ chatApiBase, insightsApiBase }: ChatPanelPro
       }
 
       const reader = res.body.getReader();
+      readerRef.current = reader;
       const decoder = new TextDecoder();
       let buffer = '';
 
@@ -146,10 +160,13 @@ export default function ChatPanel({ chatApiBase, insightsApiBase }: ChatPanelPro
           .then((ins: Insight | null) => { if (ins) setInsights((prev) => [...prev, ins]); })
           .catch(() => {});
       }
-    } catch {
-      setError('Network error. Is the backend running?');
-      setMessages((prev) => prev.filter((m) => m.id !== tempUserMsg.id && m.id !== STREAMING_ID));
+    } catch (err) {
+      if (err instanceof Error && err.name !== 'AbortError') {
+        setError('Network error. Is the backend running?');
+        setMessages((prev) => prev.filter((m) => m.id !== tempUserMsg.id && m.id !== STREAMING_ID));
+      }
     } finally {
+      readerRef.current = null;
       setSending(false);
       setToolStatus(null);
       setTimeout(() => inputRef.current?.focus(), 50);

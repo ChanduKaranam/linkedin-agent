@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from collections import defaultdict, deque
+from collections import deque
 from datetime import date
 from typing import Annotated, AsyncGenerator
 
@@ -43,7 +43,8 @@ log = get_logger(__name__)
 
 _RATE_LIMIT = 30
 _RATE_WINDOW = 3600
-_ip_timestamps: dict[str, deque[float]] = defaultdict(deque)
+_IP_MAX_ENTRIES = 5000  # evict oldest entries beyond this to bound memory
+_ip_timestamps: dict[str, deque[float]] = {}
 _INJECTION_RE = re.compile(r"<SOURCES>|</SOURCES>|<INST>|<SYS>|\[INST\]|\[SYS\]", re.IGNORECASE)
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -59,6 +60,12 @@ def _client_ip(request: Request) -> str:
 def _rate_limit_check(ip: str) -> None:
     now = time.monotonic()
     window_start = now - _RATE_WINDOW
+    if ip not in _ip_timestamps:
+        # Evict oldest IP entry if we're at the cap
+        if len(_ip_timestamps) >= _IP_MAX_ENTRIES:
+            oldest_ip = next(iter(_ip_timestamps))
+            del _ip_timestamps[oldest_ip]
+        _ip_timestamps[ip] = deque()
     q = _ip_timestamps[ip]
     while q and q[0] < window_start:
         q.popleft()

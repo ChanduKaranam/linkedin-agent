@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from ..auth_password import verify_password
 from ..config import get_settings
 from ..storage import create_session, delete_session, get_user_by_username
-from .deps_auth import CurrentUser, SessionDep
+from .deps_auth import CurrentUser, SessionDep, invalidate_auth_cache
 from .schemas import LoginIn, MeOut
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -24,7 +24,7 @@ async def login(body: LoginIn, response: Response, session: SessionDep) -> MeOut
         httponly=True,
         samesite=settings.session_cookie_samesite,
         secure=settings.session_cookie_secure,
-        max_age=10 * 365 * 24 * 3600,
+        max_age=30 * 24 * 3600,  # 30 days
     )
     return MeOut(username=user.username)
 
@@ -35,10 +35,11 @@ async def logout(request: Request, response: Response, session: SessionDep) -> d
     token = request.cookies.get(settings.session_cookie_name)
     if token:
         await delete_session(session, token)
+        invalidate_auth_cache(token)
     response.delete_cookie(key=settings.session_cookie_name)
     return {"ok": True}
 
 
 @router.get("/me")
 async def me(current_user: CurrentUser) -> MeOut:
-    return MeOut(username=current_user.username)
+    return MeOut(username=current_user)

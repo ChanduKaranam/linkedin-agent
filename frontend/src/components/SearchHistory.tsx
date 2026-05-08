@@ -22,8 +22,7 @@ export default function SearchHistory({ activeRunId, onPaneScroll }: SearchHisto
   const [items, setItems] = useState<SearchHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [openingRunId, setOpeningRunId] = useState<string | null>(null);
-  const [sortMode, setSortMode] = useState<'latest' | 'oldest' | 'chatted' | 'created_linkedin' | 'created_blog'>('latest');
-  const [runStats, setRunStats] = useState<Record<string, { chats: number; linkedin: number; blog: number }>>({});
+  const [sortMode, setSortMode] = useState<'latest' | 'oldest'>('latest');
 
   const activeStartedAtRef = useRef('');
 
@@ -37,6 +36,10 @@ export default function SearchHistory({ activeRunId, onPaneScroll }: SearchHisto
 
   useEffect(() => {
     let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const FAST_POLL_MS = 30000;
+    const SLOW_POLL_MS = 120000;
+
     const loadHistory = async () => {
       try {
         const res = await fetch('/api/search/history');
@@ -49,51 +52,36 @@ export default function SearchHistory({ activeRunId, onPaneScroll }: SearchHisto
         if (!cancelled) setLoading(false);
       }
     };
+
+    const schedule = () => {
+      if (cancelled) return;
+      const delay = document.visibilityState === 'visible' ? FAST_POLL_MS : SLOW_POLL_MS;
+      timeoutId = setTimeout(async () => {
+        await loadHistory();
+        schedule();
+      }, delay);
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+      void loadHistory();
+      schedule();
+    };
+
     void loadHistory();
-    const interval = setInterval(() => { void loadHistory(); }, 3000);
+    schedule();
+    document.addEventListener('visibilitychange', onVisibility);
+
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      if (timeoutId) clearTimeout(timeoutId);
+      document.removeEventListener('visibilitychange', onVisibility);
     };
   }, []);
-
-  useEffect(() => {
-    if (items.length === 0) return;
-    let cancelled = false;
-    const sample = items.slice(0, 20);
-    void Promise.all(
-      sample.map(async (item) => {
-        const trends = await fetch(`/api/search/runs/${item.run_id}/trends`)
-          .then((r) => (r.ok ? r.json() : [] as TrendListItem[]))
-          .catch(() => [] as TrendListItem[]);
-        const stats = await Promise.all(
-          trends.map(async (t: TrendListItem) => {
-            const [chats, posts] = await Promise.all([
-              fetch(`/api/chat/runs/${item.run_id}/${t.slug}/messages`).then((r) => (r.ok ? r.json() : [] as unknown[])).catch(() => [] as unknown[]),
-              fetch(`/api/posts/runs/${item.run_id}/${t.slug}`).then((r) => (r.ok ? r.json() : [] as Array<{ kind: 'linkedin' | 'blog' }>)).catch(() => [] as Array<{ kind: 'linkedin' | 'blog' }>),
-            ]);
-            return {
-              chats: chats.length,
-              linkedin: posts.filter((p: { kind: 'linkedin' | 'blog' }) => p.kind === 'linkedin').length,
-              blog: posts.filter((p: { kind: 'linkedin' | 'blog' }) => p.kind === 'blog').length,
-            };
-          }),
-        );
-        const total = stats.reduce((acc, s) => ({
-          chats: acc.chats + s.chats,
-          linkedin: acc.linkedin + s.linkedin,
-          blog: acc.blog + s.blog,
-        }), { chats: 0, linkedin: 0, blog: 0 });
-        return [item.run_id, total] as const;
-      }),
-    ).then((rows) => {
-      if (cancelled) return;
-      setRunStats((prev) => ({ ...prev, ...Object.fromEntries(rows) }));
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [items]);
 
   const displayItems = useMemo(() => {
     if (!activeRunId || activePhase === 'idle' || !IN_PROGRESS.includes(activePhase)) return items;
@@ -121,14 +109,7 @@ export default function SearchHistory({ activeRunId, onPaneScroll }: SearchHisto
     if (sortMode === 'oldest') {
       return [...displayItems].sort((a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime());
     }
-    const metric = (id: string) => {
-      const s = runStats[id];
-      if (!s) return 0;
-      if (sortMode === 'chatted') return s.chats;
-      if (sortMode === 'created_linkedin') return s.linkedin;
-      return s.blog;
-    };
-    return [...displayItems].sort((a, b) => metric(b.run_id) - metric(a.run_id));
+    return displayItems;
   })();
 
   async function handleOpen(item: SearchHistoryItem) {
@@ -189,9 +170,6 @@ export default function SearchHistory({ activeRunId, onPaneScroll }: SearchHisto
           >
             <option value="latest">Latest</option>
             <option value="oldest">Oldest</option>
-            <option value="chatted">Chatted About</option>
-            <option value="created_linkedin">Created LinkedIn Posts</option>
-            <option value="created_blog">Created Blog Posts</option>
           </select>
         </div>
       </div>

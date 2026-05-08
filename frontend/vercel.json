@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "https://linkedin-agent-lrln.onrender.com/$1"
+      "destination": "https://linkedin-agent-3ogi.onrender.com/$1"
     },
     {
       "source": "/(.*)",
