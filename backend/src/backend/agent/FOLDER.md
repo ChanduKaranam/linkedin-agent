@@ -25,21 +25,21 @@ AI agent layer. Uses LiteLLM as the model backend (Mistral by default). Contains
 - **`_format_user_content`**: separates user messages into (1) questions asked, (2) opinions/statements, (3) saved insights. Filters out short messages (<15 chars) like "thanks" or "yes". Labels each section clearly so the LLM uses them as the post's angle rather than just filler.
 
 ## Last Session Changes
-**Session date:** 2026-05-02
+**Session date:** 2026-05-08
 
 **Changes made:**
-- `trend_agent.py` — changed `cutoff = today - timedelta(days=2)` → `timedelta(days=1)` in `synthesize_daily`. The LLM is now told to discard anything older than yesterday.
-- `prompts.py` — `DAILY_SYNTHESIS_INSTRUCTION`: (1) "2 days" → "1 day" in the recency rule; (2) added new bullet: "If you cannot determine the article's publication date from its content, ASSUME it is stale and SKIP IT"; (3) added recency signal guidance (explicit dates, "today"/"yesterday", etc.). `DAILY_SYNTHESIS_USER_TEMPLATE`: updated to "1 day" and "no clear date signal" wording.
+- `post_writer.py` — fixed a bug in `_format_user_content`. The insight tags were being appended to `parts[-1]` after the `parts.append(entry)` call. If all insights in the loop were filtered (length < 10 chars), `parts[-1]` would modify the previous section header instead of the insight entry. Fixed by building the `entry` string fully (including tags) before calling `parts.append(entry)`.
 
-**Reason:** LLM was accepting articles it couldn't date because the prompt said "use content's recency signals" — too soft. Tightening to 1-day cutoff and requiring date signals before accepting an article reduces stale news slipping through.
+**Reason:** A `post_writer.py` edge case: when all saved insights were short (< 10 chars) and the outer `for ins in insights[:20]` loop `continue`d for all items, the `if ins.get("tags")` check at the end of the loop still referenced the last `ins` value. `parts[-1]` then mutated whatever string was last added to `parts` (likely a section header). This would corrupt the LLM prompt context for that post.
 
-**Outcome:** Combined with the cache TTL and search recency fixes, the LLM now has much less stale content to process, and is more aggressive about skipping undated articles.
+**Outcome:** Fixed. The bug only manifested when all insights were < 10 characters, which is unlikely in practice but was a real crash path.
 
-**Watch out for:** With a 1-day cutoff, breaking news from exactly 24h ago may occasionally be dropped. If the topic has slow news days, the LLM may struggle to find 5 distinct stories (the minimum). In that case raise `cutoff` back to 2 days.
+**Watch out for:** `_format_user_content` is called in both `generate_linkedin_post` and `generate_blog_post` — the fix covers both.
 
 ## Change Log
 | Date | File(s) Changed | Summary |
 |---|---|---|
+| 2026-05-08 | `post_writer.py` | Fixed `parts[-1]` bug: tags for an insight were appended to the wrong list entry when all insights were filtered by length; moved tag append inside the entry-building loop before `parts.append(entry)` |
 | 2026-05-02 | `trend_agent.py`, `prompts.py` | Tightened LLM recency cutoff to 1 day; added "skip if no date signal" rule to synthesis prompt |
 | 2026-05-01 | `post_writer.py` | Rewrote _format_user_content to structure user messages into questions/opinions/insights sections; added _is_question helper; improved LLM context quality |
 | 2026-05-01 | `prompts.py`, `post_writer.py` | Rewrote post prompts for practitioner-voice style; added `user_instructions` param for targeted regeneration |

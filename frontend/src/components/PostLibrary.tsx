@@ -85,7 +85,8 @@ export default function PostLibrary({ kind, activeId, onSelect, onNewPost, refre
   }, [kind, refreshKey, retryTick, loadPosts]);
 
   useEffect(() => {
-    if (posts.length === 0) return;
+    const needsStats = sortMode === 'chatted' || sortMode === 'created_linkedin' || sortMode === 'created_blog';
+    if (posts.length === 0 || !needsStats) return;
     const ac = new AbortController();
     const keys = Array.from(new Set(posts.map((p) => `${p.run_id}::${p.run_date}::${p.slug}`)));
     void Promise.all(
@@ -110,7 +111,7 @@ export default function PostLibrary({ kind, activeId, onSelect, onNewPost, refre
       if (!ac.signal.aborted) setContextStats(Object.fromEntries(rows));
     }).catch(() => {});
     return () => ac.abort();
-  }, [posts]);
+  }, [posts, sortMode]);
 
   // Client-side filter — matched against headline, slug, and tags
   const filtered = useMemo(() => {

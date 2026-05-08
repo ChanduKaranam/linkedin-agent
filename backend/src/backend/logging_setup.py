@@ -25,6 +25,7 @@ _SILENCE = [
 # ── Module-level state for the async log worker ─────────────────────────────
 _log_queue: Queue[dict] | None = None
 _worker_task: asyncio.Task | None = None
+_dropped_logs = 0
 
 
 def _redact_secrets(_, __, event_dict: dict) -> dict:
@@ -62,6 +63,8 @@ class _DBLogHandler(logging.Handler):
             try:
                 self._queue.put_nowait(payload)
             except asyncio.QueueFull:
+                global _dropped_logs
+                _dropped_logs += 1
                 pass  # drop rather than block the caller
         except Exception:
             self.handleError(record)
@@ -213,3 +216,11 @@ def get_logger(name: str = "trend_agent") -> structlog.stdlib.BoundLogger:
     if not name.startswith("backend"):
         name = f"backend.{name}"
     return structlog.get_logger(name)
+
+
+def log_worker_metrics() -> dict[str, int]:
+    queue_depth = _log_queue.qsize() if _log_queue is not None else 0
+    return {
+        "log_queue_depth": queue_depth,
+        "log_queue_dropped": _dropped_logs,
+    }

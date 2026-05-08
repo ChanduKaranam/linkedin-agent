@@ -196,6 +196,32 @@ DATABASE_URL=postgresql+asyncpg://postgres:YOUR_PASSWORD@localhost:5432/trend_ag
 # Set to true to run the daily pipeline automatically inside the server process
 ENABLE_INPROCESS_SCHEDULER=false
 
+# Set to false to keep API process lightweight and execute runs in worker service
+RUN_PIPELINE_IN_WEB_PROCESS=true
+
+# Worker polling cadence (seconds) for queued pending runs
+WORKER_POLL_SECONDS=5
+
+# Ad-hoc search safety caps for production memory control
+ADHOC_MAX_SOURCES_PER_RUN=10
+ADHOC_MAX_PER_QUERY=4
+ADHOC_SCRAPE_CONCURRENCY=2
+ADHOC_SUMMARIZE_MAX_CHARS_PER_SOURCE=2500
+
+# Optional: disable cross-encoder reranker to reduce memory footprint
+RAG_DISABLE_RERANK=false
+
+# DB pool tuning (important on Render + Neon under polling traffic)
+DB_POOL_SIZE=8
+DB_MAX_OVERFLOW=16
+DB_POOL_TIMEOUT=20
+
+# Throttle session last_seen writes to reduce hot-path DB pressure
+AUTH_LAST_SEEN_UPDATE_SECONDS=300
+
+# In-memory auth cache TTL to avoid DB hit on every protected poll request
+AUTH_CACHE_TTL_SECONDS=20
+
 # Set to true to expose /docs (Swagger UI) and all /admin/* routes
 DEBUG=false
 
@@ -327,6 +353,18 @@ set PYTHONIOENCODING=utf-8
 ```
 
 > Warning: `reset_today.py` deletes ALL runs for today and runs the full pipeline synchronously. It takes approximately 30 minutes due to RAG indexing. Do not use while the backend is serving live traffic.
+
+### Running a Separate Worker (production recommended)
+
+When `RUN_PIPELINE_IN_WEB_PROCESS=false`, API routes only queue runs (`state=pending`) and a worker executes them.
+
+```bash
+cd backend
+.venv\Scripts\activate
+set PYTHONUTF8=1
+set PYTHONIOENCODING=utf-8
+python -m backend.worker
+```
 
 ---
 

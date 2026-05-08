@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+import time
 import uuid
 from datetime import date, datetime
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..config import get_schedule_info, get_topic_config, update_schedule
+from ..config import get_schedule_info, get_settings, get_topic_config, update_schedule
 from ..db import _get_factory, get_session
 from ..logging_setup import get_logger
 from ..pipeline import run_pipeline_safe
@@ -19,14 +20,24 @@ log = get_logger(__name__)
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
+_schedule_cache: tuple[Any, float] | None = None
+_SCHEDULE_TTL = 30.0
+
 
 @router.get("/admin/schedule", response_model=ScheduleOut)
 async def get_schedule_admin() -> ScheduleOut:
-    return ScheduleOut(**get_schedule_info())
+    global _schedule_cache
+    if _schedule_cache and time.monotonic() < _schedule_cache[1]:
+        return _schedule_cache[0]
+    value = ScheduleOut(**get_schedule_info())
+    _schedule_cache = (value, time.monotonic() + _SCHEDULE_TTL)
+    return value
 
 
 @router.post("/admin/schedule", response_model=ScheduleOut)
 async def update_schedule_endpoint(body: ScheduleUpdate) -> ScheduleOut:
+    global _schedule_cache
+    _schedule_cache = None  # invalidate on write
     update_schedule(body.hour, body.minute)
     try:
         from .main import _active_scheduler
@@ -68,9 +79,12 @@ async def run_now(
 
     run_id = str(uuid.uuid4())
     await create_run(session, run_id, today, topic_cfg.topic)
-    background_tasks.add_task(_run_pipeline_background, run_id, today, topic_cfg, settings.cache_dir)
-    log.info("run_triggered_via_api", run_id=run_id)
-    return RunNowOut(run_id=run_id, message="Pipeline started")
+    if settings.run_pipeline_in_web_process:
+        background_tasks.add_task(_run_pipeline_background, run_id, today, topic_cfg, settings.cache_dir)
+        log.info("run_triggered_via_api", run_id=run_id)
+        return RunNowOut(run_id=run_id, message="Pipeline started")
+    log.info("run_queued_via_api", run_id=run_id)
+    return RunNowOut(run_id=run_id, message="Run queued for worker")
 
 
 @router.get("/admin/runs/{run_id}", response_model=RunOut)

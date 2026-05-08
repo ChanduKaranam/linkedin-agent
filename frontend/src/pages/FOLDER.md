@@ -15,21 +15,20 @@ One component per route. LinkedIn workspace pages are wired to the backend. Tili
 | `Insights.tsx` | **Route removed.** File still exists but `/insights` is no longer in the router. Can be deleted. |
 
 ## Last Session Changes
-**Session date:** 2026-05-01
+**Session date:** 2026-05-08
 
 **Changes made:**
-- `BlogPost.tsx` — full rewrite. Now uses PostLibrary + PostEditor layout. `handleLibraryLoad` callback merges real post data from library into `active` state. `handleCreated` sets active immediately with slug-derived headline for instant feedback, then `handleLibraryLoad` updates with real data on list refresh.
-- `LinkedInPost.tsx` — full rewrite. Same pattern as BlogPost. `showPublish=true` passed to PostEditor to show LinkedIn connect/publish section.
-- `Insights.tsx` — removed from router (`App.tsx`) and navbar (`Navbar.tsx`). File retained but unused.
+- `Trends.tsx` — replaced `let cancelled = false` pattern with `AbortController` in the per-trend stats fetch effect. When `dailyTrends` or `selectedDate` changes (e.g. user switches dates quickly), `ac.abort()` cancels all in-flight fetch calls immediately. Uses `if (!ac.signal.aborted) setTrendStats(...)` guard before state update. Added `.catch(() => {})` on the outer Promise.all to swallow abort errors cleanly.
 
-**Reason:** BlogPost and LinkedInPost were showing "0 posts" on navigation return because: (1) the `list_all_generated_posts` outerjoin was broken, (2) `onFirstLoad` only fired once. Both fixed at the component and backend level.
+**Reason:** Switching dates rapidly would fire 2N fetch requests (2 per trend) for the old date that couldn't be cancelled. With 20–30 trends, this means 40–60 concurrent requests that all completed even after the user moved to a different date. Now they're properly aborted.
 
-**Outcome:** Posts persist across navigation. Library auto-selects most recent post on every page visit.
+**Outcome:** Fixed. In browser DevTools, switching dates while stats are loading now shows cancelled requests in the Network tab.
 
-**Watch out for:** `Insights.tsx` still exists — delete it when cleaning up. `handleLibraryLoad` uses functional `setActive` updater (not a direct `setActive(p)`) — this is intentional to avoid stale closure bugs. Do not simplify it to `setActive(p)` or it will overwrite user selections.
+**Watch out for:** `Insights.tsx` still exists in this folder but is no longer in the router — delete it when doing cleanup. `handleLibraryLoad` in `BlogPost.tsx`/`LinkedInPost.tsx` uses a functional `setActive` updater — this is intentional to avoid stale closures; do not simplify to `setActive(p)`.
 
 ## Change Log
 | Date | File(s) Changed | Summary |
 |---|---|---|
+| 2026-05-08 | `Trends.tsx` | Added AbortController to per-trend stats fetch — date switching now cancels in-flight requests |
 | 2026-05-01 | `BlogPost.tsx`, `LinkedInPost.tsx` | Full rewrite to PostLibrary+PostEditor split; handleLibraryLoad for auto-select; removed Insights route |
 | 2026-05-01 | All files | Initial creation — wired Trends, Searches, BlogPost, LinkedInPost to backend; Tilicho pages mock + Coming Soon |

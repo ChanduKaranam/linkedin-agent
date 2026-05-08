@@ -98,6 +98,20 @@ class Settings(BaseSettings):
     session_cookie_name: str = "session_id"
     session_cookie_secure: bool = False
     session_cookie_samesite: str = "lax"
+    # Production controls for ad-hoc search memory/cost pressure.
+    adhoc_max_sources_per_run: int = 10
+    adhoc_max_per_query: int = 4
+    adhoc_scrape_concurrency: int = 2
+    adhoc_summarize_max_chars_per_source: int = 2500
+    rag_disable_rerank: bool = False
+    run_pipeline_in_web_process: bool = True
+    worker_poll_seconds: int = 5
+    db_pool_size: int = 2
+    db_max_overflow: int = 3
+    db_pool_timeout: int = 10
+    db_pool_recycle: int = 900
+    auth_last_seen_update_seconds: int = 300
+    auth_cache_ttl_seconds: int = 20
 
     @field_validator("database_url", mode="before")
     @classmethod

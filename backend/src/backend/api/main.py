@@ -25,7 +25,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from ..config import get_settings, get_topic_config
 from ..db import _get_factory, dispose_engine
-from ..logging_setup import get_logger, setup_logging, start_log_worker, stop_log_worker
+from ..logging_setup import get_logger, log_worker_metrics, setup_logging, start_log_worker, stop_log_worker
 from ..pipeline import run_pipeline_safe
 from ..storage import count_trends_for_run, create_run, get_stale_runs, init_db, purge_data_older_than, purge_expired_sessions, purge_old_logs, run_exists_for_date, update_run_state
 from .deps_auth import require_user
@@ -44,6 +44,20 @@ _run_lock = asyncio.Lock()  # prevents concurrent daily runs (catch-up + APSched
 _catchup_task: asyncio.Task | None = None
 _STALE_RUN_TIMEOUT_HOURS = 2  # runs stuck in-progress longer than this are auto-failed
 _RETENTION_DAYS = 15  # keep this many days of daily trend data; older data is purged
+
+
+def _runtime_metrics() -> dict[str, int | float]:
+    rss_mb = 0.0
+    try:
+        import resource  # Unix (Render)
+        rss_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        rss_mb = round(rss_kb / 1024, 2)
+    except Exception:
+        pass
+    return {
+        "rss_mb": rss_mb,
+        **log_worker_metrics(),
+    }
 
 
 async def _resolve_stale_run(session, run) -> None:
@@ -71,6 +85,7 @@ async def _cleanup_stale_runs() -> None:
                 started = started.replace(tzinfo=timezone.utc)
             if started < cutoff:
                 await _resolve_stale_run(session, run)
+    log.info("stale_run_cleanup_complete", **_runtime_metrics())
 
 
 async def _purge_old_data() -> None:
@@ -96,6 +111,7 @@ async def _purge_old_data() -> None:
         expired_sessions=expired_sessions,
         **counts,
         **log_counts,
+        **_runtime_metrics(),
     )
 
 
@@ -122,7 +138,7 @@ async def lifespan(app: FastAPI):
     os.environ.setdefault("LITELLM_REQUEST_TIMEOUT", str(settings.litellm_request_timeout))
 
     scheduler = None
-    if settings.enable_inprocess_scheduler:
+    if settings.enable_inprocess_scheduler and settings.run_pipeline_in_web_process:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
         from apscheduler.triggers.cron import CronTrigger
 
@@ -183,6 +199,8 @@ async def lifespan(app: FastAPI):
                 _catchup_task.add_done_callback(
                     lambda t: t.exception() and log.error("catchup_run_failed", error=str(t.exception()))
                 )
+    elif settings.enable_inprocess_scheduler and not settings.run_pipeline_in_web_process:
+        log.warning("scheduler_disabled_in_web_process", reason="run_pipeline_in_web_process=false")
 
     yield
 

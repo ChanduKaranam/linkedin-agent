@@ -18,19 +18,18 @@ RAG (Retrieval-Augmented Generation) layer. Handles chunking scraped Markdown in
 - **Idempotent indexing**: `DELETE chunks WHERE trend_id = X AND source_url = Y` runs before each insert, so re-running index_trend is safe.
 
 ## Last Session Changes
-**Session date:** 2026-05-02
+**Session date:** 2026-05-08
 
 **Changes made:**
-- `indexer.py` — wrapped `embed_batch(texts)` call in `asyncio.get_event_loop().run_in_executor(None, embed_batch, texts)`. Added `import asyncio` at the top.
+- `retriever.py` — added `import asyncio` and `from functools import partial`. Wrapped `embed_query(query)` call in `await loop.run_in_executor(None, embed_query, query)`. Wrapped `rerank(query, texts)` call in `await loop.run_in_executor(None, partial(rerank, query, texts))`.
 
-**Reason:** `embed_batch` is synchronous CPU work (fastembed ONNX inference). Calling it directly on the asyncio event loop blocked the entire FastAPI server for 3-4 minutes per trend × 9 trends = ~30 minutes during each pipeline run. During this time, ALL HTTP requests (including `/health`) timed out, causing the frontend to show "Agent service is unreachable". Moving it to a thread executor frees the event loop immediately.
+**Reason:** `embed_query` and `rerank` call fastembed's ONNX inference synchronously. On every chat turn this blocked the event loop for 50–200ms — long enough to delay all other HTTP requests, including SSE stream writes. The indexer already used executor for `embed_batch` (since 2026-05-02), but the retriever's two calls were overlooked.
 
-**Outcome:** Fix is in place. After the next backend restart, the server will remain responsive during RAG indexing. Existing in-progress pipeline runs at time of fix were not affected (the blocking code was already on the call stack).
-
-**Watch out for:** `embed_batch` and `embed_query` in `embedder.py` are still synchronous — only `indexer.py` wraps them in executor. If `embed_query` (called by the retriever during chat) ever becomes slow, apply the same executor pattern there.
+**Watch out for:** Both `embed_query` and `rerank` are now in executors. `indexer.py` also uses executor (added 2026-05-02). The delete-before-insert in `indexer.py` should be wrapped in a transaction so readers don't see a window with no chunks — this is a known issue to revisit.
 
 ## Change Log
 | Date | File(s) Changed | Summary |
 |---|---|---|
+| 2026-05-08 | `retriever.py` | Wrapped `embed_query` and `rerank` in `run_in_executor` — was blocking the event loop on every chat turn |
 | 2026-05-02 | `indexer.py` | Wrapped embed_batch in run_in_executor to prevent event loop blocking during RAG indexing |
 | — | — | Initial FOLDER.md created |

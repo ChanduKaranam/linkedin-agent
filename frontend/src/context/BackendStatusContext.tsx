@@ -74,8 +74,8 @@ export function BackendStatusProvider({ children }: { children: React.ReactNode 
   useEffect(() => { bootstrap(); }, [bootstrap]);
 
   useEffect(() => {
-    // Base interval: 5s when pipeline running, 15s when idle
-    const base = backendStatus === 'running' ? 5_000 : 15_000;
+    // Base interval: 30s when pipeline running, 120s when idle
+    const base = backendStatus === 'running' ? 30_000 : 120_000;
     // Exponential backoff on consecutive failures: 15s → 30s → 60s (cap)
     const backoff = consecutiveFailures.current > 0
       ? Math.min(15_000 * 2 ** (consecutiveFailures.current - 1), 60_000)

@@ -4,7 +4,7 @@ import secrets
 import time
 from datetime import date
 from urllib.parse import quote
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
@@ -51,6 +51,10 @@ log = get_logger(__name__)
 # OAuth state nonce store: {nonce: (return_to, expires_ts)}
 _oauth_state: dict[str, tuple[str, float]] = {}
 _OAUTH_STATE_TTL = 600  # 10 minutes
+
+# LinkedIn status cache: (value, expires_at) — refreshed on connect/disconnect
+_li_status_cache: tuple[Any, float] | None = None
+_LI_STATUS_TTL = 30.0
 
 
 def _new_oauth_nonce(return_to: str) -> str:
@@ -346,8 +350,13 @@ async def publish_post_endpoint(
 
 @router.get("/admin/linkedin/status", response_model=LinkedInStatusOut)
 async def linkedin_status(session: SessionDep) -> LinkedInStatusOut:
+    global _li_status_cache
+    if _li_status_cache and time.monotonic() < _li_status_cache[1]:
+        return _li_status_cache[0]
     status = await li.get_connection_status(session)
-    return LinkedInStatusOut(**status)
+    value = LinkedInStatusOut(**status)
+    _li_status_cache = (value, time.monotonic() + _LI_STATUS_TTL)
+    return value
 
 
 @router.get("/admin/linkedin/authorize")
@@ -381,6 +390,8 @@ async def linkedin_callback(code: str, session: SessionDep, state: str | None = 
         log.error("linkedin_oauth_callback_failed", error=str(exc))
         msg = quote(str(exc))
         return RedirectResponse(url=f"{base_redirect}{joiner}li_auth=failed&msg={msg}", status_code=303)
+    global _li_status_cache
+    _li_status_cache = None  # force fresh status read after connect
     return RedirectResponse(url=f"{base_redirect}{joiner}li_auth=success", status_code=303)
 
 

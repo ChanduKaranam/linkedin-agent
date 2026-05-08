@@ -4,6 +4,7 @@ import secrets
 from datetime import date, datetime, timezone
 
 from sqlalchemy import and_, case, delete, func, select, tuple_, update
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db_models import AuthSession, ChatMessage, Chunk, GeneratedPost, Insight, LinkedInAccount, LogEvent, Run, StyleProfile, StyleSample, Trend, User
@@ -275,6 +276,27 @@ async def upsert_trend(session: AsyncSession, trend: PersistedTrend) -> int:
     await session.flush()  # populates new_trend.id
     await session.commit()
     return new_trend.id
+
+
+async def get_trend_summaries_for_run(
+    session: AsyncSession, run_id: str
+) -> list[tuple[str, str, str, int]]:
+    """Lightweight projection for list endpoints — avoids loading detailed_markdown."""
+    rows = (await session.execute(
+        select(Trend.slug, Trend.headline, Trend.one_liner, func.jsonb_array_length(Trend.sources_json))
+        .where(Trend.run_id == run_id)
+        .order_by(Trend.id)
+    )).all()
+    return [(slug, headline, one_liner, src_count or 0) for slug, headline, one_liner, src_count in rows]
+
+
+async def get_trend_by_run_and_slug(
+    session: AsyncSession, run_id: str, slug: str
+) -> PersistedTrend | None:
+    row = (await session.execute(
+        select(Trend).where(Trend.run_id == run_id, Trend.slug == slug)
+    )).scalar_one_or_none()
+    return _orm_to_trend(row) if row else None
 
 
 async def get_trends_for_run(session: AsyncSession, run_id: str) -> list[PersistedTrend]:
@@ -907,11 +929,21 @@ async def create_session(session: AsyncSession, username: str) -> str:
 
 
 async def get_session_user(session: AsyncSession, token: str) -> User | None:
-    row = (
-        await session.execute(
-            select(AuthSession).where(AuthSession.token == token)
-        )
-    ).scalar_one_or_none()
+    try:
+        row = (
+            await session.execute(
+                select(AuthSession).where(AuthSession.token == token)
+            )
+        ).scalar_one_or_none()
+    except (SQLAlchemyError, ConnectionResetError) as exc:
+        # Render/Neon can occasionally reset TLS handshakes; retry once.
+        log.warning("auth_session_lookup_retry", error=str(exc))
+        await session.rollback()
+        row = (
+            await session.execute(
+                select(AuthSession).where(AuthSession.token == token)
+            )
+        ).scalar_one_or_none()
     if row is None:
         return None
     # Reject expired sessions (may not have expires_at if created before 0008 migration)
@@ -919,13 +951,61 @@ async def get_session_user(session: AsyncSession, token: str) -> User | None:
         await session.execute(delete(AuthSession).where(AuthSession.token == token))
         await session.commit()
         return None
-    await session.execute(
-        update(AuthSession)
-        .where(AuthSession.token == token)
-        .values(last_seen_at=datetime.now(timezone.utc))
-    )
-    await session.commit()
+    # Avoid writing on every single authenticated request; this endpoint is
+    # hot under polling UIs and can saturate the DB pool.
+    from .config import get_settings
+    from datetime import timedelta
+    now = datetime.now(timezone.utc)
+    min_interval = timedelta(seconds=max(get_settings().auth_last_seen_update_seconds, 30))
+    if row.last_seen_at is None or (now - row.last_seen_at) >= min_interval:
+        await session.execute(
+            update(AuthSession)
+            .where(AuthSession.token == token)
+            .values(last_seen_at=now)
+        )
+        await session.commit()
     return await get_user_by_username(session, row.username)
+
+
+async def get_session_username(session: AsyncSession, token: str) -> str | None:
+    """Lightweight auth check used by request dependency.
+
+    Avoids a join/query on users for every protected request. Returns username if
+    token exists and is not expired, otherwise None.
+    """
+    try:
+        row = (
+            await session.execute(
+                select(AuthSession).where(AuthSession.token == token)
+            )
+        ).scalar_one_or_none()
+    except (SQLAlchemyError, ConnectionResetError) as exc:
+        log.warning("auth_session_username_retry", error=str(exc))
+        await session.rollback()
+        row = (
+            await session.execute(
+                select(AuthSession).where(AuthSession.token == token)
+            )
+        ).scalar_one_or_none()
+    if row is None:
+        return None
+    if hasattr(row, "expires_at") and row.expires_at and row.expires_at < datetime.now(timezone.utc):
+        await session.execute(delete(AuthSession).where(AuthSession.token == token))
+        await session.commit()
+        return None
+
+    from .config import get_settings
+    from datetime import timedelta
+    now = datetime.now(timezone.utc)
+    min_interval = timedelta(seconds=max(get_settings().auth_last_seen_update_seconds, 30))
+    if row.last_seen_at is None or (now - row.last_seen_at) >= min_interval:
+        await session.execute(
+            update(AuthSession)
+            .where(AuthSession.token == token)
+            .values(last_seen_at=now)
+        )
+        await session.commit()
+    return row.username
 
 
 async def purge_expired_sessions(session: AsyncSession) -> int:

@@ -72,7 +72,7 @@ export default function Navbar() {
       }
     }
     void loadLinkedInStatus();
-    const id = window.setInterval(() => { void loadLinkedInStatus(); }, 15000);
+    const id = window.setInterval(() => { void loadLinkedInStatus(); }, 120000);
     return () => {
       cancelled = true;
       window.clearInterval(id);

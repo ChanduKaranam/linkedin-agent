@@ -5,6 +5,7 @@ import hashlib
 import time
 from datetime import date, datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import tldextract
 from rapidfuzz import fuzz
@@ -30,12 +31,69 @@ from .storage import (
     upsert_trend,
 )
 
+if TYPE_CHECKING:
+    from crawl4ai import AsyncWebCrawler
+
 log = get_logger(__name__)
+
+# Track background indexing tasks so GC doesn't discard them before they finish
+_bg_index_tasks: set[asyncio.Task] = set()
 
 
 def _domain(url: str) -> str:
     ext = tldextract.extract(url)
     return f"{ext.domain}.{ext.suffix}" if ext.suffix else ext.domain
+
+
+async def _background_index(
+    pending: list[tuple[int, str, list[Source]]],
+    cache_dir: Path,
+) -> None:
+    """Index trends sequentially in a fresh session. Runs as a background task."""
+    from .db import _get_factory
+    try:
+        async with _get_factory()() as session:
+            for trend_id, run_id, sources in pending:
+                try:
+                    await index_trend(session, trend_id, run_id, sources, cache_dir)
+                except Exception as exc:
+                    log.exception("background_index_trend_failed", trend_id=trend_id, error=str(exc))
+    except Exception as exc:
+        log.exception("background_index_session_failed", error=str(exc))
+
+
+def _fire_background_index(
+    pending: list[tuple[int, str, list[Source]]],
+    cache_dir: Path,
+) -> None:
+    """Schedule background indexing and track the task to prevent GC."""
+    if not pending:
+        return
+    task = asyncio.create_task(_background_index(pending, cache_dir))
+    _bg_index_tasks.add(task)
+    task.add_done_callback(_bg_index_tasks.discard)
+
+
+async def _open_shared_crawler():
+    """Return (crawler, cleanup_coro) or (None, None) if Crawl4AI unavailable."""
+    try:
+        from crawl4ai import AsyncWebCrawler, BrowserConfig
+        browser_cfg = BrowserConfig(headless=True, verbose=False)
+        crawler = AsyncWebCrawler(config=browser_cfg)
+        await crawler.__aenter__()
+        return crawler
+    except Exception as exc:
+        log.warning("crawl4ai_unavailable_using_httpx_only", error=str(exc)[:120])
+        return None
+
+
+async def _close_shared_crawler(crawler) -> None:
+    if crawler is None:
+        return
+    try:
+        await crawler.__aexit__(None, None, None)
+    except Exception:
+        pass
 
 
 async def run_pipeline(
@@ -52,12 +110,19 @@ async def run_pipeline(
     await update_run_state(session, run_id, "discovering")
     log.info("phase_start", phase="discover", run_id=run_id)
 
+    # Fetch all query results in parallel
+    query_results = await asyncio.gather(
+        *[search_web(q, max_results=limits.max_per_query) for q in topic_cfg.queries],
+        return_exceptions=True,
+    )
+
     all_urls: list[dict] = []
     seen_canon: set[str] = set()
-
-    for query in topic_cfg.queries:
-        discovered = await search_web(query, max_results=limits.max_per_query)
-        for item in discovered:
+    for result in query_results:
+        if isinstance(result, Exception):
+            log.warning("search_query_failed", error=str(result))
+            continue
+        for item in result:
             if not item.url:
                 continue
             canon_list = deduplicate_urls([item.url])
@@ -76,15 +141,20 @@ async def run_pipeline(
         if len(all_urls) >= limits.max_sources_per_run:
             break
 
-    # robots.txt filter
-    allowed: list[dict] = []
-    for item in all_urls:
-        try:
-            if await is_allowed(item["url"], limits.per_domain_rps):
-                allowed.append(item)
-        except Exception as exc:
-            log.warning("robots_check_failed_disallowing", url=item["url"], error=str(exc))
-    all_urls = allowed
+    # robots.txt filter — parallel with bounded concurrency
+    robots_sem = asyncio.Semaphore(8)
+
+    async def _check_robots(item: dict) -> dict | None:
+        async with robots_sem:
+            try:
+                if await is_allowed(item["url"], limits.per_domain_rps):
+                    return item
+            except Exception as exc:
+                log.warning("robots_check_failed_disallowing", url=item["url"], error=str(exc))
+            return None
+
+    robots_results = await asyncio.gather(*[_check_robots(u) for u in all_urls])
+    all_urls = [r for r in robots_results if r is not None]
 
     if not all_urls:
         await update_run_state(session, run_id, "failed", 0, 0, "NO_SOURCES")
@@ -95,33 +165,40 @@ async def run_pipeline(
 
     # ── Phase 2: Scrape ────────────────────────────────────────────────────
     await update_run_state(session, run_id, "scraping")
+    await session.commit()  # release connection to pool during long scrape phase
     log.info("phase_start", phase="scrape", run_id=run_id, url_count=len(all_urls))
 
     sem = asyncio.Semaphore(limits.scrape_concurrency)
+    crawler = await _open_shared_crawler()
 
-    async def _scrape_one(item: dict) -> tuple[dict, ScrapedPage | None]:
-        async with sem:
-            await polite_delay(item["domain"], limits.per_domain_rps)
-            cache_key = hashlib.md5(item["url"].encode()).hexdigest()
-            cache_file = cache_dir / f"{cache_key}.md"
-            if cache_file.exists():
-                age_hours = (time.time() - cache_file.stat().st_mtime) / 3600
-                if age_hours <= limits.cache_ttl_hours:
-                    markdown = cache_file.read_text(encoding="utf-8")
-                    return item, ScrapedPage(
-                        url=item["url"],
-                        title=item["title"],
-                        markdown=markdown,
-                        domain=item["domain"],
-                        scrape_method="cache",
-                    )
-                cache_file.unlink(missing_ok=True)
-            page = await scrape_url(item["url"], timeout=limits.scrape_timeout_seconds)
-            if page:
-                cache_file.write_text(page.markdown, encoding="utf-8")
-            return item, page
+    try:
+        async def _scrape_one(item: dict) -> tuple[dict, ScrapedPage | None]:
+            async with sem:
+                await polite_delay(item["domain"], limits.per_domain_rps)
+                cache_key = hashlib.md5(item["url"].encode()).hexdigest()
+                cache_file = cache_dir / f"{cache_key}.md"
+                if cache_file.exists():
+                    age_hours = (time.time() - cache_file.stat().st_mtime) / 3600
+                    if age_hours <= limits.cache_ttl_hours:
+                        markdown = cache_file.read_text(encoding="utf-8")
+                        return item, ScrapedPage(
+                            url=item["url"],
+                            title=item["title"],
+                            markdown=markdown,
+                            domain=item["domain"],
+                            scrape_method="cache",
+                        )
+                    cache_file.unlink(missing_ok=True)
+                page = await scrape_url(item["url"], timeout=limits.scrape_timeout_seconds, crawler=crawler)
+                if page:
+                    # Truncate at the I/O boundary — synthesis only uses the first N chars
+                    page.markdown = page.markdown[:limits.summarize_max_chars_per_source]
+                    cache_file.write_text(page.markdown, encoding="utf-8")
+                return item, page
 
-    scrape_results = await asyncio.gather(*[_scrape_one(u) for u in all_urls], return_exceptions=True)
+        scrape_results = await asyncio.gather(*[_scrape_one(u) for u in all_urls], return_exceptions=True)
+    finally:
+        await _close_shared_crawler(crawler)
 
     scrape_warnings = 0
     scraped: list[tuple[dict, ScrapedPage]] = []
@@ -145,6 +222,7 @@ async def run_pipeline(
 
     # ── Phase 3: Daily Synthesis ───────────────────────────────────────────
     await update_run_state(session, run_id, "summarizing")
+    await session.commit()  # release connection to pool during LLM call
     log.info("phase_start", phase="daily_synthesis", run_id=run_id, article_count=len(scraped))
 
     chars_per_article = min(limits.summarize_max_chars_per_source, 1200)
@@ -167,11 +245,15 @@ async def run_pipeline(
     deduped_trends = _dedup_by_headline_similarity(daily_briefs.trends)
     log.info("daily_synthesis_complete", story_count=len(deduped_trends), run_id=run_id)
 
+    # ── Phase 4: Persist (RAG indexing runs in background after state update) ──
     trend_count = 0
     warnings = scrape_warnings
     window = topic_cfg.dedup.cross_day_window
     settings = get_settings()
     recent_headlines = await get_recent_headlines(session, window)
+
+    # Collect (trend_id, run_id, sources) for background indexing
+    index_pending: list[tuple[int, str, list[Source]]] = []
 
     for summary in deduped_trends:
         fingerprint = compute_fingerprint(summary.headline)
@@ -197,12 +279,16 @@ async def run_pipeline(
             fingerprint=fingerprint,
         )
         trend_id = await upsert_trend(session, trend)
-        await index_trend(session, trend_id, run_id, all_sources, cache_dir)
+        index_pending.append((trend_id, run_id, all_sources))
         trend_count += 1
         log.info("trend_persisted", slug=slug, headline=summary.headline, run_id=run_id)
 
     final_state = "completed" if warnings == 0 else "completed_with_warnings"
     await update_run_state(session, run_id, final_state, trend_count, warnings)
+
+    # Fire RAG indexing in the background — does not block "completed" state
+    _fire_background_index(index_pending, settings.cache_dir)
+
     log.info("pipeline_complete", run_id=run_id, trends=trend_count, warnings=warnings)
     return trend_count, warnings
 
@@ -237,7 +323,18 @@ def _rule_based_cluster(snippets: list[dict]) -> list[Cluster]:
 def build_adhoc_topic_config(topic_input: str, base: TopicConfig) -> TopicConfig:
     cleaned = topic_input.strip()
     queries = [cleaned, f"{cleaned} news", f"{cleaned} this week", f"{cleaned} latest updates"]
-    adhoc_limits = base.limits.model_copy(update={"max_sources_per_run": 15, "max_per_query": 5})
+    settings = get_settings()
+    adhoc_limits = base.limits.model_copy(
+        update={
+            "max_sources_per_run": min(base.limits.max_sources_per_run, settings.adhoc_max_sources_per_run),
+            "max_per_query": min(base.limits.max_per_query, settings.adhoc_max_per_query),
+            "scrape_concurrency": min(base.limits.scrape_concurrency, settings.adhoc_scrape_concurrency),
+            "summarize_max_chars_per_source": min(
+                base.limits.summarize_max_chars_per_source,
+                settings.adhoc_summarize_max_chars_per_source,
+            ),
+        }
+    )
     return base.model_copy(update={"topic": cleaned, "queries": queries, "limits": adhoc_limits})
 
 
@@ -290,12 +387,19 @@ async def run_search_synthesis(
     await update_run_state(session, run_id, "discovering")
     log.info("phase_start", phase="discover", run_id=run_id)
 
+    # Fetch all query results in parallel
+    query_results = await asyncio.gather(
+        *[search_web(q, max_results=limits.max_per_query) for q in topic_cfg.queries],
+        return_exceptions=True,
+    )
+
     all_urls: list[dict] = []
     seen_canon: set[str] = set()
-
-    for query in topic_cfg.queries:
-        discovered = await search_web(query, max_results=limits.max_per_query)
-        for item in discovered:
+    for result in query_results:
+        if isinstance(result, Exception):
+            log.warning("search_query_failed", error=str(result))
+            continue
+        for item in result:
             if not item.url:
                 continue
             canon_list = deduplicate_urls([item.url])
@@ -314,14 +418,20 @@ async def run_search_synthesis(
         if len(all_urls) >= limits.max_sources_per_run:
             break
 
-    allowed: list[dict] = []
-    for item in all_urls:
-        try:
-            if await is_allowed(item["url"], limits.per_domain_rps):
-                allowed.append(item)
-        except Exception as exc:
-            log.warning("robots_check_failed_disallowing", url=item["url"], error=str(exc))
-    all_urls = allowed
+    # robots.txt filter — parallel with bounded concurrency
+    robots_sem = asyncio.Semaphore(8)
+
+    async def _check_robots(item: dict) -> dict | None:
+        async with robots_sem:
+            try:
+                if await is_allowed(item["url"], limits.per_domain_rps):
+                    return item
+            except Exception as exc:
+                log.warning("robots_check_failed_disallowing", url=item["url"], error=str(exc))
+            return None
+
+    robots_results = await asyncio.gather(*[_check_robots(u) for u in all_urls])
+    all_urls = [r for r in robots_results if r is not None]
 
     if not all_urls:
         await update_run_state(session, run_id, "failed", 0, 0, "NO_SOURCES")
@@ -330,33 +440,40 @@ async def run_search_synthesis(
     log.info("discover_complete", url_count=len(all_urls), run_id=run_id)
 
     await update_run_state(session, run_id, "scraping")
+    await session.commit()  # release connection during scrape
     log.info("phase_start", phase="scrape", run_id=run_id, url_count=len(all_urls))
 
     sem = asyncio.Semaphore(limits.scrape_concurrency)
+    crawler = await _open_shared_crawler()
 
-    async def _scrape_one(item: dict) -> tuple[dict, ScrapedPage | None]:
-        async with sem:
-            await polite_delay(item["domain"], limits.per_domain_rps)
-            cache_key = hashlib.md5(item["url"].encode()).hexdigest()
-            cache_file = cache_dir / f"{cache_key}.md"
-            if cache_file.exists():
-                age_hours = (time.time() - cache_file.stat().st_mtime) / 3600
-                if age_hours <= limits.cache_ttl_hours:
-                    markdown = cache_file.read_text(encoding="utf-8")
-                    return item, ScrapedPage(
-                        url=item["url"],
-                        title=item["title"],
-                        markdown=markdown,
-                        domain=item["domain"],
-                        scrape_method="cache",
-                    )
-                cache_file.unlink(missing_ok=True)
-            page = await scrape_url(item["url"], timeout=limits.scrape_timeout_seconds)
-            if page:
-                cache_file.write_text(page.markdown, encoding="utf-8")
-            return item, page
+    try:
+        async def _scrape_one(item: dict) -> tuple[dict, ScrapedPage | None]:
+            async with sem:
+                await polite_delay(item["domain"], limits.per_domain_rps)
+                cache_key = hashlib.md5(item["url"].encode()).hexdigest()
+                cache_file = cache_dir / f"{cache_key}.md"
+                if cache_file.exists():
+                    age_hours = (time.time() - cache_file.stat().st_mtime) / 3600
+                    if age_hours <= limits.cache_ttl_hours:
+                        markdown = cache_file.read_text(encoding="utf-8")
+                        return item, ScrapedPage(
+                            url=item["url"],
+                            title=item["title"],
+                            markdown=markdown,
+                            domain=item["domain"],
+                            scrape_method="cache",
+                        )
+                    cache_file.unlink(missing_ok=True)
+                page = await scrape_url(item["url"], timeout=limits.scrape_timeout_seconds, crawler=crawler)
+                if page:
+                    # Truncate at the I/O boundary before storing in memory and on disk
+                    page.markdown = page.markdown[:limits.summarize_max_chars_per_source]
+                    cache_file.write_text(page.markdown, encoding="utf-8")
+                return item, page
 
-    scrape_results = await asyncio.gather(*[_scrape_one(u) for u in all_urls], return_exceptions=True)
+        scrape_results = await asyncio.gather(*[_scrape_one(u) for u in all_urls], return_exceptions=True)
+    finally:
+        await _close_shared_crawler(crawler)
 
     scraped: list[tuple[dict, ScrapedPage]] = []
     for result in scrape_results:
@@ -375,6 +492,7 @@ async def run_search_synthesis(
     log.info("scrape_complete", scraped=len(scraped), total=len(all_urls), run_id=run_id)
 
     await update_run_state(session, run_id, "summarizing")
+    await session.commit()  # release connection during LLM synthesis call
     log.info("phase_start", phase="synthesize", run_id=run_id, source_count=len(scraped))
 
     content_parts = [
@@ -412,10 +530,14 @@ async def run_search_synthesis(
         fingerprint=fingerprint,
     )
     trend_id = await upsert_trend(session, trend)
-    await index_trend(session, trend_id, run_id, sources, get_settings().cache_dir)
 
+    # Mark completed before indexing — user sees results immediately
     await update_run_state(session, run_id, "completed", 1, 0)
     log.info("synthesis_pipeline_complete", run_id=run_id, headline=summary.headline)
+
+    # RAG indexing runs in the background
+    _fire_background_index([(trend_id, run_id, sources)], get_settings().cache_dir)
+
     return 1, 0
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -28,6 +29,7 @@ def _get_reranker():
     return _rerank_model
 
 
+@lru_cache(maxsize=128)
 def embed_query(text: str) -> list[float]:
     return list(next(iter(_get_embed().embed([text]))))
 

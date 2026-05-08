@@ -40,13 +40,15 @@ export function SearchModeProvider({ children }: { children: React.ReactNode }) 
   const [activeError, setActiveError] = useState<string | null>(null);
   const [activeIsCached, setActiveIsCached] = useState(false);
 
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollDelayRef = useRef(5000);
   // Ref so the polling interval always reads the latest topic without closure staleness
   const activeTopicRef = useRef('');
   useEffect(() => { activeTopicRef.current = activeTopic; }, [activeTopic]);
 
   const stopPolling = useCallback(() => {
-    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+    if (pollRef.current) { clearTimeout(pollRef.current); pollRef.current = null; }
+    pollDelayRef.current = 5000;
   }, []);
 
   const enterSearch = useCallback(async (runId: string, topic: string, trends: TrendListItem[]) => {
@@ -68,14 +70,27 @@ export function SearchModeProvider({ children }: { children: React.ReactNode }) 
     if (!activeRunId) { stopPolling(); return; }
 
     const runId = activeRunId;
+    let cancelled = false;
+    const BASE_DELAY_MS = 5000;
+    const MAX_DELAY_MS = 20000;
 
     stopPolling();
-    pollRef.current = setInterval(async () => {
+    const tick = async () => {
+      if (cancelled) return;
+      if (document.visibilityState === 'hidden') {
+        pollRef.current = setTimeout(tick, MAX_DELAY_MS);
+        return;
+      }
       try {
         const res = await fetch(`/api/search/runs/${runId}`);
-        if (!res.ok) return;
+        if (!res.ok) {
+          pollDelayRef.current = Math.min(pollDelayRef.current * 2, MAX_DELAY_MS);
+          pollRef.current = setTimeout(tick, pollDelayRef.current);
+          return;
+        }
         const status = await res.json() as { state: SearchState; last_error?: string; topic: string };
         setActivePhase(status.state);
+        pollDelayRef.current = BASE_DELAY_MS;
 
         if (status.state === 'failed') {
           stopPolling();
@@ -95,11 +110,30 @@ export function SearchModeProvider({ children }: { children: React.ReactNode }) 
           setActiveRunId('');
           setActivePhase('idle');
           setActiveTopic('');
+          return;
         }
-      } catch { /* keep polling */ }
-    }, 2000);
+      } catch {
+        pollDelayRef.current = Math.min(pollDelayRef.current * 2, MAX_DELAY_MS);
+      }
+      if (!cancelled) {
+        pollRef.current = setTimeout(tick, pollDelayRef.current);
+      }
+    };
 
-    return stopPolling;
+    pollRef.current = setTimeout(tick, BASE_DELAY_MS);
+    const onVisibility = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (pollRef.current) clearTimeout(pollRef.current);
+      pollDelayRef.current = BASE_DELAY_MS;
+      pollRef.current = setTimeout(tick, 200);
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      cancelled = true;
+      document.removeEventListener('visibilitychange', onVisibility);
+      stopPolling();
+    };
   }, [activeRunId, stopPolling, enterSearch]);
 
   async function startSearch(topic: string, force = true) {

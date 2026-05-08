@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
+import time
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,54 +25,75 @@ log = get_logger(__name__)
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
+# ── in-process TTL caches (key → (value, expires_at)) ────────────────────────
+_cache: dict[str, tuple[Any, float]] = {}
+_cache_lock = asyncio.Lock()
+
+
+async def _cached(key: str, ttl: float, factory):
+    async with _cache_lock:
+        entry = _cache.get(key)
+        if entry and time.monotonic() < entry[1]:
+            return entry[0]
+        value = await factory()
+        _cache[key] = (value, time.monotonic() + ttl)
+        return value
+
 
 @router.get("/health", response_model=HealthOut)
 async def health(session: SessionDep) -> HealthOut:
     """Liveness + latest run status for frontend loading state."""
-    from datetime import datetime, timedelta, timezone
-    from ..storage import count_trends_for_run
-    latest = await get_latest_daily_run(session)
-    if latest is None:
+    async def _compute():
+        from datetime import datetime, timedelta, timezone
+        from ..storage import count_trends_for_run
+        latest = await get_latest_daily_run(session)
+        if latest is None:
+            return HealthOut(
+                status="ok",
+                latest_run_date=None,
+                latest_run_state=None,
+                pipeline_running=False,
+                trend_count=0,
+            )
+        running_states = {"pending", "discovering", "scraping", "clustering", "summarizing"}
+        is_in_progress = latest.state in running_states
+
+        pipeline_running = False
+        if is_in_progress:
+            started = latest.started_at
+            if started and started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+            age = datetime.now(timezone.utc) - started if started else timedelta(0)
+            has_trends = latest.trend_count > 0 or await count_trends_for_run(session, latest.run_id) > 0
+            pipeline_running = not has_trends and age < timedelta(hours=2)
+
         return HealthOut(
             status="ok",
-            latest_run_date=None,
-            latest_run_state=None,
-            pipeline_running=False,
-            trend_count=0,
+            latest_run_date=latest.run_date,
+            latest_run_state=latest.state,
+            pipeline_running=pipeline_running,
+            trend_count=latest.trend_count,
         )
-    running_states = {"pending", "discovering", "scraping", "clustering", "summarizing"}
-    is_in_progress = latest.state in running_states
 
-    # Only report pipeline_running=True when the run is actively in-progress
-    # AND hasn't already produced visible trends. A run stuck for > 2 hours that
-    # already has trends should not hide those trends from the frontend.
-    pipeline_running = False
-    if is_in_progress:
-        started = latest.started_at
-        if started and started.tzinfo is None:
-            started = started.replace(tzinfo=timezone.utc)
-        age = datetime.now(timezone.utc) - started if started else timedelta(0)
-        has_trends = latest.trend_count > 0 or await count_trends_for_run(session, latest.run_id) > 0
-        pipeline_running = not has_trends and age < timedelta(hours=2)
-
-    return HealthOut(
-        status="ok",
-        latest_run_date=latest.run_date,
-        latest_run_state=latest.state,
-        pipeline_running=pipeline_running,
-        trend_count=latest.trend_count,
-    )
+    # Cache health for 10 s — it's polled on every page load by BackendStatusContext
+    return await _cached("health", 10.0, _compute)
 
 
 @router.get("/schedule", response_model=ScheduleOut)
 async def get_schedule() -> ScheduleOut:
-    return ScheduleOut(**get_schedule_info())
+    async def _compute():
+        return ScheduleOut(**get_schedule_info())
+    # schedule.yaml is file-backed and rarely changes; cache 30 s
+    return await _cached("schedule", 30.0, _compute)
 
 
 @router.get("/trends/dates", response_model=list[str])
 async def available_dates(session: SessionDep) -> list[str]:
-    dates = await get_available_dates(session)
-    return [d.isoformat() for d in dates]
+    async def _compute():
+        dates = await get_available_dates(session)
+        return [d.isoformat() for d in dates]
+    # Cache for 10 s — the date list changes at most once per day
+    return await _cached("trends_dates", 10.0, _compute)
 
 
 @router.get("/trends/today", response_model=list[TrendListItem])

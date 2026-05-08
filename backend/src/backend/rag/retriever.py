@@ -7,6 +7,7 @@ from functools import partial
 from sqlalchemy import and_, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..config import get_settings
 from ..db_models import Chunk
 from .embedder import embed_query, rerank
 
@@ -76,9 +77,12 @@ async def retrieve(
     if not candidates:
         return []
 
-    # Cross-encoder rerank — run in executor to avoid blocking the event loop
-    scores = await loop.run_in_executor(None, partial(rerank, query, [c.text for c in candidates]))
-    ranked = sorted(zip(candidates, scores), key=lambda x: x[1], reverse=True)
+    if get_settings().rag_disable_rerank:
+        ranked = [(c, rrf_scores.get(c.id, 0.0)) for c in candidates]
+    else:
+        # Cross-encoder rerank — run in executor to avoid blocking the event loop
+        scores = await loop.run_in_executor(None, partial(rerank, query, [c.text for c in candidates]))
+        ranked = sorted(zip(candidates, scores), key=lambda x: x[1], reverse=True)
 
     return [
         RetrievedChunk(
