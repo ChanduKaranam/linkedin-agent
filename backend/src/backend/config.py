@@ -99,9 +99,9 @@ class Settings(BaseSettings):
     session_cookie_secure: bool = False
     session_cookie_samesite: str = "lax"
     # Production controls for ad-hoc search memory/cost pressure.
-    adhoc_max_sources_per_run: int = 10
-    adhoc_max_per_query: int = 4
-    adhoc_scrape_concurrency: int = 2
+    adhoc_max_sources_per_run: int = 16
+    adhoc_max_per_query: int = 6
+    adhoc_scrape_concurrency: int = 4
     adhoc_summarize_max_chars_per_source: int = 2500
     rag_disable_rerank: bool = False
     run_pipeline_in_web_process: bool = True
@@ -110,11 +110,17 @@ class Settings(BaseSettings):
     db_max_overflow: int = 3
     db_pool_timeout: int = 20
     db_pool_recycle: int = 900
-    # Set SCRAPE_USE_HTTPX_ONLY=true on Render/low-CPU hosts.
-    # Skips Crawl4AI/Playwright entirely; uses httpx+trafilatura only.
-    # Playwright starves the asyncio event loop on throttled CPUs, causing
-    # DB connection timeouts in concurrent requests during the scrape phase.
+    # Skips Crawl4AI/Playwright; uses httpx+trafilatura only.
+    # Auto-detects Render (RENDER env var) — override with SCRAPE_USE_HTTPX_ONLY=false
+    # if you need JS rendering on Render (requires playwright install step).
     scrape_use_httpx_only: bool = False
+
+    @model_validator(mode="after")
+    def _auto_httpx_only(self) -> "Settings":
+        import os
+        if os.environ.get("RENDER") and not os.environ.get("SCRAPE_USE_HTTPX_ONLY"):
+            object.__setattr__(self, "scrape_use_httpx_only", True)
+        return self
     auth_last_seen_update_seconds: int = 300
     auth_cache_ttl_seconds: int = 20
 

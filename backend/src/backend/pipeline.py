@@ -220,7 +220,7 @@ async def run_pipeline(
             scrape_warnings += 1
 
     fail_rate = 1 - (len(scraped) / max(len(all_urls), 1))
-    if fail_rate > 0.5:
+    if fail_rate > 0.8:
         await update_run_state(session, run_id, "failed", 0, 0, "SCRAPE_MAJORITY_FAILED")
         raise RuntimeError("SCRAPE_MAJORITY_FAILED")
 
@@ -491,7 +491,7 @@ async def run_search_synthesis(
             scraped.append((item, page))
 
     fail_rate = 1 - (len(scraped) / max(len(all_urls), 1))
-    if fail_rate > 0.5:
+    if fail_rate > 0.8:
         await update_run_state(session, run_id, "failed", 0, 0, "SCRAPE_MAJORITY_FAILED")
         raise RuntimeError("SCRAPE_MAJORITY_FAILED")
 
@@ -505,6 +505,8 @@ async def run_search_synthesis(
         f"# {page.title}\nSource: {page.url}\n\n{page.markdown[:limits.summarize_max_chars_per_source]}"
         for item, page in scraped
     ]
+    # Pad with search snippets for every URL that failed to scrape — gives the LLM
+    # at least a title + snippet for paywalled/blocked sites instead of nothing.
     scraped_urls = {page.url for _, page in scraped}
     for item in all_urls:
         if item["url"] not in scraped_urls and item.get("snippet"):
