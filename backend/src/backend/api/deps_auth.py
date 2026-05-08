@@ -3,15 +3,12 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request
-from passlib.context import CryptContext
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_settings
 from ..db import get_session
 from ..db_models import User
 from ..storage import get_session_user
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 

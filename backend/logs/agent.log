@@ -7587,3 +7587,94 @@ LiteLLM completion() model= mistral-large-latest; provider = mistral
 {"hour": 10, "minute": 14, "tz": "Asia/Kolkata", "event": "inprocess_scheduler_started", "level": "info", "logger": "src.backend.api.main", "timestamp": "2026-05-07T15:33:44.467440Z"}
 {"cutoff": "2026-04-22", "retention_days": 15, "chat_messages": 0, "insights": 0, "runs": 0, "event": "data_retention_purge", "level": "info", "logger": "src.backend.api.main", "timestamp": "2026-05-07T16:37:30.620646Z"}
 {"hour": 10, "minute": 14, "tz": "Asia/Kolkata", "event": "inprocess_scheduler_started", "level": "info", "logger": "src.backend.api.main", "timestamp": "2026-05-07T16:37:33.423024Z"}
+{"cutoff": "2026-04-23", "retention_days": 15, "chat_messages": 0, "insights": 0, "runs": 0, "event": "data_retention_purge", "level": "info", "logger": "src.backend.api.main", "timestamp": "2026-05-08T05:15:21.915641Z"}
+{"run_id": "9a2572dc-3543-4901-8d99-f328bbf52bec", "event": "stale_run_marked_failed", "level": "warning", "logger": "src.backend.api.main", "timestamp": "2026-05-08T05:15:24.697076Z"}
+{"hour": 10, "minute": 14, "tz": "Asia/Kolkata", "event": "inprocess_scheduler_started", "level": "info", "logger": "src.backend.api.main", "timestamp": "2026-05-08T05:15:25.099335Z"}
+{"reason": "server_started_after_schedule_time", "event": "catchup_run_triggered", "level": "info", "logger": "src.backend.api.main", "timestamp": "2026-05-08T05:15:26.762753Z"}
+{"run_id": "42cfc97a-a44f-40d4-bbd6-69bdbdd4f2fd", "date": "2026-05-08", "event": "scheduled_run_started", "level": "info", "logger": "src.backend.api.main", "timestamp": "2026-05-08T05:15:30.834746Z"}
+{"phase": "discover", "run_id": "42cfc97a-a44f-40d4-bbd6-69bdbdd4f2fd", "event": "phase_start", "level": "info", "logger": "src.backend.pipeline", "timestamp": "2026-05-08T05:15:32.734500Z"}
+{"url_count": 30, "run_id": "42cfc97a-a44f-40d4-bbd6-69bdbdd4f2fd", "event": "discover_complete", "level": "info", "logger": "src.backend.pipeline", "timestamp": "2026-05-08T05:16:09.297127Z"}
+{"phase": "scrape", "run_id": "42cfc97a-a44f-40d4-bbd6-69bdbdd4f2fd", "url_count": 30, "event": "phase_start", "level": "info", "logger": "src.backend.pipeline", "timestamp": "2026-05-08T05:16:11.611555Z"}
+{"url": "https://www.forbes.com/sites/annatong/2026/05/07/three-dudes-run-the-biggest-ai-romantic-fantasy-site-for-women/", "method": "crawl4ai", "chars": 58673, "event": "scrape_success", "level": "info", "logger": "src.backend.agent.tools.scrape", "timestamp": "2026-05-08T05:16:22.708993Z"}
+{"url": "https://www.jdsupra.com/legalnews/daily-compliance-news-may-7-2026-the-32471/", "method": "crawl4ai", "chars": 20559, "event": "scrape_success", "level": "info", "logger": "src.backend.agent.tools.scrape", "timestamp": "2026-05-08T05:16:23.128198Z"}
+{"url": "https://www.wired.com/story/you-can-disable-gemini-in-chrome-if-its-freaking-you-out/", "method": "crawl4ai", "chars": 27519, "event": "scrape_success", "level": "info", "logger": "src.backend.agent.tools.scrape", "timestamp": "2026-05-08T05:16:26.062747Z"}
+{"url": "https://www.forbes.com/sites/david-tao/2026/05/07/i-tasted-laphroaig-and-willem-dafoes-new-14-year-scotch/", "method": "crawl4ai", "chars": 45022, "event": "scrape_success", "level": "info", "logger": "src.backend.agent.tools.scrape", "timestamp": "2026-05-08T05:16:28.762730Z"}
+{"url": "https://www.biospace.com/press-releases/eko-health-appoints-dr-steven-steinhubl-as-chief-medical-officer", "method": "crawl4ai", "chars": 26163, "event": "scrape_success", "level": "info", "logger": "src.backend.agent.tools.scrape", "timestamp": "2026-05-08T05:16:29.609441Z"}
+{"url": "https://www.forbes.com/sites/davidhambling/2026/05/07/russian-missile-drought-bites-as-putin-pulls-back-to-defend-moscow/", "method": "crawl4ai", "chars": 49810, "event": "scrape_success", "level": "info", "logger": "src.backend.agent.tools.scrape", "timestamp": "2026-05-08T05:16:35.587225Z"}
+{"url": "https://apnews.com/article/greece-constitution-artificial-intelligence-a9d0c3963bfffefd370a1e224895ee60", "method": "crawl4ai", "chars": 131719, "event": "scrape_success", "level": "info", "logger": "src.backend.agent.tools.scrape", "timestamp": "2026-05-08T05:16:36.092681Z"}
+{"url": "https://www.latimes.com/business/story/2026-05-07/california-tech-company-cloudflare-to-lay-off-more-than-1-000-workers-cites-ai", "method": "crawl4ai", "chars": 35082, "event": "scrape_success", "level": "info", "logger": "src.backend.agent.tools.scrape", "timestamp": "2026-05-08T05:16:40.855968Z"}
+{"url": "https://www.cnet.com/tech/mobile/google-health-announcements-fitbit-air-redesigned-fitbit-health-app-new-coach/", "method": "crawl4ai", "chars": 71216, "event": "scrape_success", "level": "info", "logger": "src.backend.agent.tools.scrape", "timestamp": "2026-05-08T05:16:43.791105Z"}
+{"url": "https://www.washingtonpost.com/wp-intelligence/ai-tech-brief/2026/05/07/ai-tech-brief-dispatch-ai-expo/", "reason": "insufficient_content", "event": "scrape_failed", "level": "warning", "logger": "src.backend.agent.tools.scrape", "timestamp": "2026-05-08T05:16:48.383977Z"}
+{"url": "https://markets.ft.com/data/announce/detail?dockey=600-202605070400PR_NEWS_USPRX____NY53610-1", "method": "crawl4ai", "chars": 27120, "event": "scrape_success", "level": "info", "logger": "src.backend.agent.tools.scrape", "timestamp": "2026-05-08T05:16:48.550959Z"}
+{"url": "https://www.techcityng.com/startup-funding-news-today-biggest-deals-and-trends/amp/", "method": "crawl4ai", "chars": 8078, "event": "scrape_success", "level": "info", "logger": "src.backend.agent.tools.scrape", "timestamp": "2026-05-08T05:16:49.336820Z"}
+{"url": "https://me.ign.com/en/xbox-next-generation/243827/more-to-share-on-next-gen-console-later-in-2026-xbox-says-as-first-game-dev-update-show-airs", "method": "crawl4ai", "chars": 9702, "event": "scrape_success", "level": "info", "logger": "src.backend.agent.tools.scrape", "timestamp": "2026-05-08T05:16:51.731193Z"}
+{"url": "https://www.geekwire.com/2026/microsoft-employees-learn-details-of-voluntary-retirement-package-heres-what-the-company-is-offering/", "method": "crawl4ai", "chars": 22419, "event": "scrape_success", "level": "info", "logger": "src.backend.agent.tools.scrape", "timestamp": "2026-05-08T05:16:53.752020Z"}
+{"url": "https://www.logisticsmgmt.com/article/gartner_states_that_ai_driven_hiring_freeze_could_backfire_by_2030", "method": "httpx+trafilatura", "chars": 3321, "event": "scrape_success", "level": "info", "logger": "src.backend.agent.tools.scrape", "timestamp": "2026-05-08T05:16:57.100341Z"}
+{"url": "https://www.businessinsider.com/alphabet-nvidia-stock-prices-most-valuable-company-googl-nvda-2026-5", "method": "crawl4ai", "chars": 17392, "event": "scrape_success", "level": "info", "logger": "src.backend.agent.tools.scrape", "timestamp": "2026-05-08T05:16:57.607293Z"}
+{"url": "https://www.ign.com/articles/more-to-share-on-next-gen-console-later-in-2026-xbox-says-ahead-of-game-dev-update-show-updating-live", "method": "crawl4ai", "chars": 19546, "event": "scrape_success", "level": "info", "logger": "src.backend.agent.tools.scrape", "timestamp": "2026-05-08T05:16:58.039466Z"}
+{"url": "https://www.gamespot.com/articles/next-gen-xbox-project-helix-wont-get-much-new-info-in-todays-event-exec-says/1100-6539840/", "method": "crawl4ai", "chars": 14626, "event": "scrape_success", "level": "info", "logger": "src.backend.agent.tools.scrape", "timestamp": "2026-05-08T05:17:03.759797Z"}
+{"url": "https://mezha.net/eng/bukvy/0ce3bdfd_reserve_your_techcrunch/", "method": "crawl4ai", "chars": 12729, "event": "scrape_success", "level": "info", "logger": "src.backend.agent.tools.scrape", "timestamp": "2026-05-08T05:17:04.329630Z"}
+{"url": "https://www.washingtontechnology.com/contracts/2026/05/nrc-seeks-research-foundation-ai-regulation-nuclear-plants/413400/?oref=wt-homepage-river", "method": "crawl4ai", "chars": 26834, "event": "scrape_success", "level": "info", "logger": "src.backend.agent.tools.scrape", "timestamp": "2026-05-08T05:17:05.126748Z"}
+{"url": "https://www.mediapost.com/publications/article/414921/ai-should-be-solving-our-customers-problems-no.html", "method": "crawl4ai", "chars": 13718, "event": "scrape_success", "level": "info", "logger": "src.backend.agent.tools.scrape", "timestamp": "2026-05-08T05:17:19.208900Z"}
+{"scraped": 29, "total": 30, "run_id": "42cfc97a-a44f-40d4-bbd6-69bdbdd4f2fd", "event": "scrape_complete", "level": "info", "logger": "src.backend.pipeline", "timestamp": "2026-05-08T05:17:19.210907Z"}
+{"phase": "daily_synthesis", "run_id": "42cfc97a-a44f-40d4-bbd6-69bdbdd4f2fd", "article_count": 29, "event": "phase_start", "level": "info", "logger": "src.backend.pipeline", "timestamp": "2026-05-08T05:17:20.839567Z"}
+
+LiteLLM completion() model= mistral-large-latest; provider = mistral
+{"topic": "AI & tech", "story_count": 11, "event": "daily_synthesis_complete", "level": "info", "logger": "src.backend.agent.trend_agent", "timestamp": "2026-05-08T05:19:48.604035Z"}
+{"story_count": 11, "run_id": "42cfc97a-a44f-40d4-bbd6-69bdbdd4f2fd", "event": "daily_synthesis_complete", "level": "info", "logger": "src.backend.pipeline", "timestamp": "2026-05-08T05:19:48.614597Z"}
+Fatal error on SSL transport
+protocol: <asyncio.sslproto.SSLProtocol object at 0x0000026CE49E0F40>
+transport: <_ProactorSocketTransport fd=-1 read=<_OverlappedFuture cancelled>>
+Traceback (most recent call last):
+  File "C:\Users\Lenovo\AppData\Local\Programs\Python\Python310\lib\asyncio\sslproto.py", line 690, in _process_write_backlog
+    self._transport.write(chunk)
+  File "C:\Users\Lenovo\AppData\Local\Programs\Python\Python310\lib\asyncio\proactor_events.py", line 365, in write
+    self._loop_writing(data=bytes(data))
+  File "C:\Users\Lenovo\AppData\Local\Programs\Python\Python310\lib\asyncio\proactor_events.py", line 401, in _loop_writing
+    self._write_fut = self._loop._proactor.send(self._sock, data)
+AttributeError: 'NoneType' object has no attribute 'send'
+{"cutoff": "2026-04-23", "retention_days": 15, "chat_messages": 0, "insights": 0, "runs": 0, "event": "data_retention_purge", "level": "info", "logger": "src.backend.api.main", "timestamp": "2026-05-08T05:24:11.450521Z"}
+{"run_id": "42cfc97a-a44f-40d4-bbd6-69bdbdd4f2fd", "event": "stale_run_marked_failed", "level": "warning", "logger": "src.backend.api.main", "timestamp": "2026-05-08T05:24:14.318653Z"}
+{"hour": 10, "minute": 14, "tz": "Asia/Kolkata", "event": "inprocess_scheduler_started", "level": "info", "logger": "src.backend.api.main", "timestamp": "2026-05-08T05:24:14.740916Z"}
+{"reason": "server_started_after_schedule_time", "event": "catchup_run_triggered", "level": "info", "logger": "src.backend.api.main", "timestamp": "2026-05-08T05:24:16.531814Z"}
+{"run_id": "a90e1ebf-0f69-449c-a7e0-5e7478eba06e", "date": "2026-05-08", "event": "scheduled_run_started", "level": "info", "logger": "src.backend.api.main", "timestamp": "2026-05-08T05:24:22.504336Z"}
+(trapped) error reading bcrypt version
+Traceback (most recent call last):
+  File "C:\Users\Lenovo\Desktop\LinkedIn_agent\backend\.venv\lib\site-packages\passlib\handlers\bcrypt.py", line 620, in _load_backend_mixin
+    version = _bcrypt.__about__.__version__
+AttributeError: module 'bcrypt' has no attribute '__about__'
+{"phase": "discover", "run_id": "a90e1ebf-0f69-449c-a7e0-5e7478eba06e", "event": "phase_start", "level": "info", "logger": "src.backend.pipeline", "timestamp": "2026-05-08T05:24:24.984738Z"}
+{"url_count": 30, "run_id": "a90e1ebf-0f69-449c-a7e0-5e7478eba06e", "event": "discover_complete", "level": "info", "logger": "src.backend.pipeline", "timestamp": "2026-05-08T05:24:51.958705Z"}
+{"phase": "scrape", "run_id": "a90e1ebf-0f69-449c-a7e0-5e7478eba06e", "url_count": 30, "event": "phase_start", "level": "info", "logger": "src.backend.pipeline", "timestamp": "2026-05-08T05:24:53.751582Z"}
+{"url": "https://www.fiercehealthcare.com/ai-and-machine-learning/pennsylvania-sues-characterai-over-ai-chatbot-allegedly-unlawfully", "method": "crawl4ai", "chars": 12893, "event": "scrape_success", "level": "info", "logger": "src.backend.agent.tools.scrape", "timestamp": "2026-05-08T05:25:00.436124Z"}
+{"url": "https://www.fiercebiotech.com/medtech/roche-shell-out-1b-acquire-pathai-move-boost-ai-based-dx-algorithms", "method": "crawl4ai", "chars": 11940, "event": "scrape_success", "level": "info", "logger": "src.backend.agent.tools.scrape", "timestamp": "2026-05-08T05:25:01.669636Z"}
+{"url": "https://www.hrdive.com/news/job-seekers-participate-ai-interview-hiring/819603/", "method": "crawl4ai", "chars": 27554, "event": "scrape_success", "level": "info", "logger": "src.backend.agent.tools.scrape", "timestamp": "2026-05-08T05:25:02.754295Z"}
+{"url": "https://sea.ign.com/xbox-next-generation/242456/more-to-share-on-next-gen-console-later-in-2026-xbox-says-ahead-of-game-dev-update-show-updating-liv", "method": "crawl4ai", "chars": 9765, "event": "scrape_success", "level": "info", "logger": "src.backend.agent.tools.scrape", "timestamp": "2026-05-08T05:25:06.505817Z"}
+{"url": "https://letsdatascience.com/news/atlantic-examines-what-ai-means-for-everyday-life-0ce44d7b", "method": "crawl4ai", "chars": 7124, "event": "scrape_success", "level": "info", "logger": "src.backend.agent.tools.scrape", "timestamp": "2026-05-08T05:25:06.806698Z"}
+{"url": "https://www.washingtonpost.com/wp-intelligence/ai-tech-brief/2026/05/07/ai-tech-brief-dispatch-ai-expo/", "reason": "insufficient_content", "event": "scrape_failed", "level": "warning", "logger": "src.backend.agent.tools.scrape", "timestamp": "2026-05-08T05:25:23.465886Z"}
+{"scraped": 29, "total": 30, "run_id": "a90e1ebf-0f69-449c-a7e0-5e7478eba06e", "event": "scrape_complete", "level": "info", "logger": "src.backend.pipeline", "timestamp": "2026-05-08T05:25:23.468055Z"}
+{"phase": "daily_synthesis", "run_id": "a90e1ebf-0f69-449c-a7e0-5e7478eba06e", "article_count": 29, "event": "phase_start", "level": "info", "logger": "src.backend.pipeline", "timestamp": "2026-05-08T05:25:24.974778Z"}
+
+LiteLLM completion() model= mistral-large-latest; provider = mistral
+(trapped) error reading bcrypt version
+Traceback (most recent call last):
+  File "C:\Users\Lenovo\Desktop\LinkedIn_agent\backend\.venv\lib\site-packages\passlib\handlers\bcrypt.py", line 620, in _load_backend_mixin
+    version = _bcrypt.__about__.__version__
+AttributeError: module 'bcrypt' has no attribute '__about__'
+{"cutoff": "2026-04-23", "retention_days": 15, "chat_messages": 0, "insights": 0, "runs": 0, "event": "data_retention_purge", "level": "info", "logger": "src.backend.api.main", "timestamp": "2026-05-08T05:28:00.852890Z"}
+{"run_id": "a90e1ebf-0f69-449c-a7e0-5e7478eba06e", "event": "stale_run_marked_failed", "level": "warning", "logger": "src.backend.api.main", "timestamp": "2026-05-08T05:28:03.570737Z"}
+{"hour": 10, "minute": 14, "tz": "Asia/Kolkata", "event": "inprocess_scheduler_started", "level": "info", "logger": "src.backend.api.main", "timestamp": "2026-05-08T05:28:03.751599Z"}
+{"reason": "server_started_after_schedule_time", "event": "catchup_run_triggered", "level": "info", "logger": "src.backend.api.main", "timestamp": "2026-05-08T05:28:05.304922Z"}
+{"run_id": "6c3e967b-aa7c-4754-8fdb-ccdc38cdf943", "date": "2026-05-08", "event": "scheduled_run_started", "level": "info", "logger": "src.backend.api.main", "timestamp": "2026-05-08T05:28:09.256696Z"}
+{"phase": "discover", "run_id": "6c3e967b-aa7c-4754-8fdb-ccdc38cdf943", "event": "phase_start", "level": "info", "logger": "src.backend.pipeline", "timestamp": "2026-05-08T05:28:11.184628Z"}
+{"url_count": 30, "run_id": "6c3e967b-aa7c-4754-8fdb-ccdc38cdf943", "event": "discover_complete", "level": "info", "logger": "src.backend.pipeline", "timestamp": "2026-05-08T05:28:35.252149Z"}
+{"phase": "scrape", "run_id": "6c3e967b-aa7c-4754-8fdb-ccdc38cdf943", "url_count": 30, "event": "phase_start", "level": "info", "logger": "src.backend.pipeline", "timestamp": "2026-05-08T05:28:37.541550Z"}
+{"url": "https://www.tipranks.com/news/company-announcements/nordic-mining-sets-webcast-for-q1-2026-results-and-company-update", "method": "crawl4ai", "chars": 21253, "event": "scrape_success", "level": "info", "logger": "src.backend.agent.tools.scrape", "timestamp": "2026-05-08T05:28:43.983178Z"}
+{"url": "https://finance.yahoo.com/markets/stocks/live/stock-market-today-dow-sp-500-nasdaq-stall-as-crude-oil-steadies-in-wait-for-iran-us-deal-update-231446762.html", "method": "crawl4ai", "chars": 59056, "event": "scrape_success", "level": "info", "logger": "src.backend.agent.tools.scrape", "timestamp": "2026-05-08T05:28:46.620525Z"}
+{"url": "https://www.cnbc.com/video/2026/05/07/software-winners-emerge-this-earnings-season-with-datadog-up-33-percent.html", "method": "crawl4ai", "chars": 16189, "event": "scrape_success", "level": "info", "logger": "src.backend.agent.tools.scrape", "timestamp": "2026-05-08T05:28:48.898676Z"}
+{"url": "https://www.cnbc.com/video/2026/05/07/datadog-converted-an-ai-first-business-without-leaving-behind-its-old-business-says-jim-cramer.html", "method": "httpx+trafilatura", "chars": 272, "event": "scrape_success", "level": "info", "logger": "src.backend.agent.tools.scrape", "timestamp": "2026-05-08T05:28:54.302539Z"}
+{"url": "https://www.washingtonpost.com/wp-intelligence/ai-tech-brief/2026/05/07/ai-tech-brief-dispatch-ai-expo/", "reason": "insufficient_content", "event": "scrape_failed", "level": "warning", "logger": "src.backend.agent.tools.scrape", "timestamp": "2026-05-08T05:29:04.839782Z"}
+{"scraped": 29, "total": 30, "run_id": "6c3e967b-aa7c-4754-8fdb-ccdc38cdf943", "event": "scrape_complete", "level": "info", "logger": "src.backend.pipeline", "timestamp": "2026-05-08T05:29:04.840302Z"}
+{"phase": "daily_synthesis", "run_id": "6c3e967b-aa7c-4754-8fdb-ccdc38cdf943", "article_count": 29, "event": "phase_start", "level": "info", "logger": "src.backend.pipeline", "timestamp": "2026-05-08T05:29:06.766187Z"}
+
+LiteLLM completion() model= mistral-large-latest; provider = mistral
