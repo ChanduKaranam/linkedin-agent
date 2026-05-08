@@ -77,7 +77,7 @@ class ChatMessage(Base):
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    run_id: Mapped[str] = mapped_column(String, nullable=False)
+    run_id: Mapped[str] = mapped_column(String, ForeignKey("runs.run_id", ondelete="CASCADE"), nullable=False)
     run_date: Mapped[date] = mapped_column(Date, nullable=False)
     slug: Mapped[str] = mapped_column(String, nullable=False)
     role: Mapped[str] = mapped_column(String, nullable=False)
@@ -95,7 +95,7 @@ class Insight(Base):
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    run_id: Mapped[str] = mapped_column(String, nullable=False)
+    run_id: Mapped[str | None] = mapped_column(String, ForeignKey("runs.run_id", ondelete="SET NULL"), nullable=True)
     run_date: Mapped[date] = mapped_column(Date, nullable=False)
     slug: Mapped[str] = mapped_column(String, nullable=False)
     user_perspective: Mapped[str] = mapped_column(Text, nullable=False)
@@ -107,12 +107,16 @@ class Insight(Base):
 
 class StyleSample(Base):
     __tablename__ = "style_samples"
-    __table_args__ = (Index("idx_style_samples_created", "created_at"),)
+    __table_args__ = (
+        Index("idx_style_samples_created", "created_at"),
+        Index("idx_style_samples_hash", "text_hash"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     source: Mapped[str] = mapped_column(String, nullable=False)  # chat | insight | post_edit
     source_ref: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     text: Mapped[str] = mapped_column(Text, nullable=False)
+    text_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
@@ -130,11 +134,12 @@ class GeneratedPost(Base):
     __table_args__ = (
         Index("idx_gen_posts_run_date_slug", "run_date", "slug"),
         Index("idx_gen_posts_run_id_slug", "run_id", "slug"),
+        Index("idx_gen_posts_kind_status_updated", "kind", "status", "updated_at"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     kind: Mapped[str] = mapped_column(String, nullable=False)  # linkedin | blog
-    run_id: Mapped[str] = mapped_column(String, nullable=False)
+    run_id: Mapped[str | None] = mapped_column(String, ForeignKey("runs.run_id", ondelete="SET NULL"), nullable=True)
     run_date: Mapped[date] = mapped_column(Date, nullable=False)
     slug: Mapped[str] = mapped_column(String, nullable=False)
     headline: Mapped[str] = mapped_column(Text, nullable=False, default="")
@@ -155,11 +160,13 @@ class User(Base):
 
 class AuthSession(Base):
     __tablename__ = "auth_sessions"
+    __table_args__ = (Index("idx_auth_sessions_expires_at", "expires_at"),)
 
     token: Mapped[str] = mapped_column(String(64), primary_key=True)
     username: Mapped[str] = mapped_column(String(255), ForeignKey("users.username", ondelete="CASCADE"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class LinkedInAccount(Base):
@@ -171,6 +178,24 @@ class LinkedInAccount(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     member_urn: Mapped[str] = mapped_column(String, nullable=False)
     member_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class LogEvent(Base):
+    __tablename__ = "log_events"
+    __table_args__ = (
+        Index("ix_log_events_ts", "ts"),
+        Index("ix_log_events_level_ts", "level", "ts"),
+        Index("ix_log_events_logger_ts", "logger_name", "ts"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    level: Mapped[str] = mapped_column(String(10), nullable=False)
+    logger_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    event: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    run_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class Chunk(Base):

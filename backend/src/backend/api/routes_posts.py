@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import secrets
+import time
 from datetime import date
 from urllib.parse import quote
 from typing import Annotated
@@ -45,6 +47,31 @@ from .schemas import (
 
 router = APIRouter()
 log = get_logger(__name__)
+
+# OAuth state nonce store: {nonce: (return_to, expires_ts)}
+_oauth_state: dict[str, tuple[str, float]] = {}
+_OAUTH_STATE_TTL = 600  # 10 minutes
+
+
+def _new_oauth_nonce(return_to: str) -> str:
+    # Evict expired entries
+    now = time.monotonic()
+    expired = [k for k, (_, ts) in _oauth_state.items() if ts < now]
+    for k in expired:
+        del _oauth_state[k]
+    nonce = secrets.token_urlsafe(32)
+    _oauth_state[nonce] = (return_to, now + _OAUTH_STATE_TTL)
+    return nonce
+
+
+def _consume_oauth_nonce(nonce: str) -> str | None:
+    entry = _oauth_state.pop(nonce, None)
+    if entry is None:
+        return None
+    return_to, expires_ts = entry
+    if time.monotonic() > expires_ts:
+        return None
+    return return_to
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
@@ -330,7 +357,8 @@ async def linkedin_authorize(return_to: str = Query(default="/")) -> RedirectRes
     if not settings.linkedin_client_id:
         raise HTTPException(status_code=503, detail="LinkedIn OAuth not configured. Set LINKEDIN_CLIENT_ID in .env.")
     safe_return_to = return_to if return_to.startswith("/") else "/"
-    url = li.oauth_start(state=safe_return_to)
+    nonce = _new_oauth_nonce(safe_return_to)
+    url = li.oauth_start(state=nonce)
     return RedirectResponse(url=url)
 
 
@@ -338,7 +366,13 @@ async def linkedin_authorize(return_to: str = Query(default="/")) -> RedirectRes
 async def linkedin_callback(code: str, session: SessionDep, state: str | None = None) -> RedirectResponse:
     from ..config import get_settings
     settings = get_settings()
-    safe_return_to = state if state and state.startswith("/") else "/"
+    safe_return_to = "/"
+    if state:
+        resolved = _consume_oauth_nonce(state)
+        if resolved:
+            safe_return_to = resolved
+        else:
+            log.warning("linkedin_oauth_invalid_state", state_prefix=state[:8])
     base_redirect = f"{settings.frontend_base_url.rstrip('/')}{safe_return_to}"
     joiner = "&" if "?" in base_redirect else "?"
     try:

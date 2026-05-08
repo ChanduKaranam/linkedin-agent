@@ -82,8 +82,8 @@ async def run_pipeline(
         try:
             if await is_allowed(item["url"], limits.per_domain_rps):
                 allowed.append(item)
-        except Exception:
-            allowed.append(item)
+        except Exception as exc:
+            log.warning("robots_check_failed_disallowing", url=item["url"], error=str(exc))
     all_urls = allowed
 
     if not all_urls:
@@ -123,14 +123,18 @@ async def run_pipeline(
 
     scrape_results = await asyncio.gather(*[_scrape_one(u) for u in all_urls], return_exceptions=True)
 
+    scrape_warnings = 0
     scraped: list[tuple[dict, ScrapedPage]] = []
     for result in scrape_results:
         if isinstance(result, Exception):
             log.warning("scrape_exception", error=str(result))
+            scrape_warnings += 1
             continue
         item, page = result
         if page:
             scraped.append((item, page))
+        else:
+            scrape_warnings += 1
 
     fail_rate = 1 - (len(scraped) / max(len(all_urls), 1))
     if fail_rate > 0.5:
@@ -164,7 +168,7 @@ async def run_pipeline(
     log.info("daily_synthesis_complete", story_count=len(deduped_trends), run_id=run_id)
 
     trend_count = 0
-    warnings = 0
+    warnings = scrape_warnings
     window = topic_cfg.dedup.cross_day_window
     settings = get_settings()
     recent_headlines = await get_recent_headlines(session, window)
@@ -173,9 +177,11 @@ async def run_pipeline(
         fingerprint = compute_fingerprint(summary.headline)
         if await fingerprint_exists_in_window(session, fingerprint, window):
             log.info("trend_dedup_skipped", fingerprint=fingerprint[:8], headline=summary.headline)
+            warnings += 1
             continue
         if any(fuzz.token_sort_ratio(summary.headline, h) >= 80 for h in recent_headlines):
             log.info("trend_fuzzy_dedup_skipped", headline=summary.headline)
+            warnings += 1
             continue
 
         slug = await unique_slug(session, summary.headline, run_date)
@@ -313,8 +319,8 @@ async def run_search_synthesis(
         try:
             if await is_allowed(item["url"], limits.per_domain_rps):
                 allowed.append(item)
-        except Exception:
-            allowed.append(item)
+        except Exception as exc:
+            log.warning("robots_check_failed_disallowing", url=item["url"], error=str(exc))
     all_urls = allowed
 
     if not all_urls:

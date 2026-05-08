@@ -27,6 +27,8 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 @router.get("/health", response_model=HealthOut)
 async def health(session: SessionDep) -> HealthOut:
     """Liveness + latest run status for frontend loading state."""
+    from datetime import datetime, timedelta, timezone
+    from ..storage import count_trends_for_run
     latest = await get_latest_daily_run(session)
     if latest is None:
         return HealthOut(
@@ -37,11 +39,25 @@ async def health(session: SessionDep) -> HealthOut:
             trend_count=0,
         )
     running_states = {"pending", "discovering", "scraping", "clustering", "summarizing"}
+    is_in_progress = latest.state in running_states
+
+    # Only report pipeline_running=True when the run is actively in-progress
+    # AND hasn't already produced visible trends. A run stuck for > 2 hours that
+    # already has trends should not hide those trends from the frontend.
+    pipeline_running = False
+    if is_in_progress:
+        started = latest.started_at
+        if started and started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+        age = datetime.now(timezone.utc) - started if started else timedelta(0)
+        has_trends = latest.trend_count > 0 or await count_trends_for_run(session, latest.run_id) > 0
+        pipeline_running = not has_trends and age < timedelta(hours=2)
+
     return HealthOut(
         status="ok",
         latest_run_date=latest.run_date,
         latest_run_state=latest.state,
-        pipeline_running=latest.state in running_states,
+        pipeline_running=pipeline_running,
         trend_count=latest.trend_count,
     )
 

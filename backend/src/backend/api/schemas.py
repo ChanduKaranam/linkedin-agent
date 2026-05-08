@@ -190,6 +190,17 @@ class PublishResponseOut(BaseModel):
     status: str
 
 
+class LogEventOut(BaseModel):
+    id: int
+    ts: datetime
+    level: str
+    logger_name: str
+    event: str | None
+    message: str | None
+    data: dict | None
+    run_id: str | None
+
+
 class PublishPostIn(BaseModel):
     content_override: str | None = Field(default=None, max_length=40000)
     image_data_url: str | None = Field(default=None, max_length=20_000_000)
