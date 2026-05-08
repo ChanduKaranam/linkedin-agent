@@ -62,24 +62,22 @@ export default function Trends() {
 
   useEffect(() => {
     if (isTilicho || !selectedDate || dailyTrends.length === 0) return;
-    let cancelled = false;
+    const ac = new AbortController();
     void Promise.all(
       dailyTrends.map(async (trend) => {
+        const opts = { signal: ac.signal };
         const [chatRes, postRes] = await Promise.all([
-          fetch(`/api/chat/${selectedDate}/${trend.slug}/messages`).then((r) => (r.ok ? r.json() : [] as unknown[])).catch(() => [] as unknown[]),
-          fetch(`/api/posts/${selectedDate}/${trend.slug}`).then((r) => (r.ok ? r.json() : [] as Array<{ kind: 'linkedin' | 'blog' }>)).catch(() => [] as Array<{ kind: 'linkedin' | 'blog' }>),
+          fetch(`/api/chat/${selectedDate}/${trend.slug}/messages`, opts).then((r) => (r.ok ? r.json() : [] as unknown[])).catch(() => [] as unknown[]),
+          fetch(`/api/posts/${selectedDate}/${trend.slug}`, opts).then((r) => (r.ok ? r.json() : [] as Array<{ kind: 'linkedin' | 'blog' }>)).catch(() => [] as Array<{ kind: 'linkedin' | 'blog' }>),
         ]);
         const linkedin = postRes.filter((p: { kind: 'linkedin' | 'blog' }) => p.kind === 'linkedin').length;
         const blog = postRes.filter((p: { kind: 'linkedin' | 'blog' }) => p.kind === 'blog').length;
         return [trend.slug, { chats: chatRes.length, linkedin, blog }] as const;
       }),
     ).then((rows) => {
-      if (cancelled) return;
-      setTrendStats(Object.fromEntries(rows));
-    });
-    return () => {
-      cancelled = true;
-    };
+      if (!ac.signal.aborted) setTrendStats(Object.fromEntries(rows));
+    }).catch(() => {});
+    return () => ac.abort();
   }, [dailyTrends, selectedDate, isTilicho]);
 
   const sortedTrends = (() => {

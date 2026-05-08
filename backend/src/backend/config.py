@@ -92,6 +92,7 @@ class Settings(BaseSettings):
     linkedin_client_secret: str = ""
     linkedin_redirect_uri: str = "http://localhost:8000/admin/linkedin/callback"
     frontend_base_url: str = "http://localhost:3000"
+    linkedin_token_key: str = ""  # Fernet key for token encryption — generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
     slack_bot_token: str = ""
     slack_default_channel_id: str = ""
     session_cookie_name: str = "session_id"

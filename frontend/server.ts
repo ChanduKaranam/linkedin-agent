@@ -1,6 +1,7 @@
 import 'dotenv/config';
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import { createServer as createViteServer } from 'vite';
+import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -83,10 +84,12 @@ async function sseProxy({ backendPath, req, res }: { backendPath: string; req: R
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (req.headers.cookie) headers['Cookie'] = req.headers.cookie;
   try {
     const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(req.body),
       signal: AbortSignal.timeout(120_000),
     });
@@ -115,7 +118,8 @@ async function sseProxy({ backendPath, req, res }: { backendPath: string; req: R
 
 async function startServer() {
   const app = express();
-  app.use(express.json({ limit: '25mb' }));
+  // 10mb covers base64-encoded images up to ~7.5MB (LinkedIn max); 25mb was excessive
+  app.use(express.json({ limit: '10mb' }));
 
   // -------------------------------------------------------------------------
   // Health
@@ -250,6 +254,9 @@ async function startServer() {
   app.post('/api/admin/schedule', (req, res) =>
     proxy({ method: 'POST', backendPath: '/admin/schedule', timeoutMs: 5_000, req, res }));
 
+  app.get('/api/admin/logs', (req, res) =>
+    proxy({ backendPath: '/admin/logs', timeoutMs: 10_000, req, res }));
+
   app.get('/api/admin/linkedin/status', (req, res) =>
     proxy({ backendPath: '/admin/linkedin/status', timeoutMs: 10_000, req, res }));
 
@@ -275,9 +282,24 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  // Global error handler — prevents unhandled errors from crashing the process
+  app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+    console.error('[express-error]', err.message);
+    if (!res.headersSent) res.status(500).json({ error: 'internal_server_error' });
+  });
+
+  const server = http.createServer(app);
+  // Prevent 502s from reverse proxies timing out idle connections before Node does
+  server.keepAliveTimeout = 65_000;
+  server.headersTimeout = 70_000;
+
+  server.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running at http://localhost:${PORT}`);
   });
 }
 
-startServer();
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason);
+});
+
+void startServer();

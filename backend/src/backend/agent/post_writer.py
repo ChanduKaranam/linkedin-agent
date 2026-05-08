@@ -70,14 +70,13 @@ def _format_user_content(chat_messages: list[dict], insights: list[dict]) -> str
             if len(text) < 10:
                 continue
             entry = f'  • "{text}"'
-            # If the insight has a meaningful summary (not an auto-generated label), include it
             summary = (ins.get("summary") or "").strip()
             if summary and not summary.startswith("Edited ") and len(summary) > 20:
                 entry += f'\n    → Context: "{summary[:200]}"'
+            if ins.get("tags"):
+                tag_str = ", ".join(ins["tags"][:5])
+                entry += f"\n    Tags: {tag_str}"
             parts.append(entry)
-        if ins.get("tags"):
-            tag_str = ", ".join(ins["tags"][:5])
-            parts[-1] += f"\n    Tags: {tag_str}"
 
     if not parts:
         return "(No chat messages or insights yet — write in the user's voice using the style profile and samples above.)"

@@ -40,7 +40,7 @@ export default function ScheduleEditor({ schedule, onSaved }: ScheduleEditorProp
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({})) as Record<string, unknown>;
-        setError(String(data?.detail ?? 'Could not save. Is DEBUG=true set?'));
+        setError(String(data?.detail ?? 'Could not save — backend unreachable.'));
         return;
       }
       const updated: ScheduleConfig = await res.json();

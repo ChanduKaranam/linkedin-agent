@@ -24,7 +24,7 @@ async def login(body: LoginIn, response: Response, session: SessionDep) -> MeOut
         httponly=True,
         samesite=settings.session_cookie_samesite,
         secure=settings.session_cookie_secure,
-        max_age=10 * 365 * 24 * 3600,
+        max_age=30 * 24 * 3600,  # 30 days
     )
     return MeOut(username=user.username)
 
