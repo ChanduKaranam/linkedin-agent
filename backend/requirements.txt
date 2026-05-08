@@ -3,8 +3,8 @@ google-adk>=1.0.0,<2.0.0
 litellm>=1.40.0,<2.0.0
 
 # ── Scraping ───────────────────────────────────────────────────────────────────
-crawl4ai>=0.4.0
-playwright>=1.51.0
+# crawl4ai / playwright omitted: post-install browser download requires root
+# (fails on Render). The code falls back to httpx+trafilatura automatically.
 httpx>=0.27.0
 trafilatura>=1.12.0
 readability-lxml>=0.8.1
