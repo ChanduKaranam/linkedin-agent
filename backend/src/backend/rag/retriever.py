@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
+from functools import partial
 
 from sqlalchemy import and_, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,7 +30,8 @@ async def retrieve(
     candidate_k: int = 20,
 ) -> list[RetrievedChunk]:
     """Hybrid retrieval: dense + BM25 → RRF → rerank → top-k."""
-    qvec = embed_query(query)
+    loop = asyncio.get_event_loop()
+    qvec = await loop.run_in_executor(None, embed_query, query)
 
     # Dense: top-candidate_k by cosine similarity
     dense_rows = (await session.execute(
@@ -73,8 +76,8 @@ async def retrieve(
     if not candidates:
         return []
 
-    # Cross-encoder rerank
-    scores = rerank(query, [c.text for c in candidates])
+    # Cross-encoder rerank — run in executor to avoid blocking the event loop
+    scores = await loop.run_in_executor(None, partial(rerank, query, [c.text for c in candidates]))
     ranked = sorted(zip(candidates, scores), key=lambda x: x[1], reverse=True)
 
     return [

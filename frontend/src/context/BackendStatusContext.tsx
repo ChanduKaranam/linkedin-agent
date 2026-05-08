@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
 import type { BackendStatus, Health, ScheduleConfig } from '@/types';
 
 interface BackendStatusContextType {
@@ -18,6 +18,7 @@ export function BackendStatusProvider({ children }: { children: React.ReactNode 
   const [schedule, setSchedule] = useState<ScheduleConfig | null>(null);
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [selectedDate, setSelectedDate] = useState('');
+  const consecutiveFailures = useRef(0);
 
   const bootstrap = useCallback(async () => {
     try {
@@ -27,32 +28,29 @@ export function BackendStatusProvider({ children }: { children: React.ReactNode 
         fetch('/api/admin/schedule'),
       ]);
 
-      // Health check
       if (!healthRes.ok) {
+        consecutiveFailures.current += 1;
         setBackendStatus('unreachable');
         return;
       }
       const health: Health & { error?: string } = await healthRes.json();
       if (health.error === 'backend_unreachable') {
+        consecutiveFailures.current += 1;
         setBackendStatus('unreachable');
         return;
       }
 
-      // Dates (only completed runs are returned by the API)
+      consecutiveFailures.current = 0;
       const dates: string[] = datesRes.ok ? await datesRes.json() : [];
 
       if (health.pipeline_running) {
         setBackendStatus('running');
-        // Still populate previous completed-run dates so the user can browse history
         setAvailableDates(dates);
         if (dates.length > 0) {
           const urlDate = new URLSearchParams(window.location.search).get('d');
           setSelectedDate(urlDate && dates.includes(urlDate) ? urlDate : dates[0]);
         }
-        if (scheduleRes.ok) {
-          const s: ScheduleConfig = await scheduleRes.json();
-          setSchedule(s);
-        }
+        if (scheduleRes.ok) setSchedule(await scheduleRes.json());
         return;
       }
 
@@ -63,28 +61,48 @@ export function BackendStatusProvider({ children }: { children: React.ReactNode 
       }
 
       setAvailableDates(dates);
-      // Read ?d= param from URL or fall back to first date
       const urlDate = new URLSearchParams(window.location.search).get('d');
       setSelectedDate(urlDate && dates.includes(urlDate) ? urlDate : dates[0]);
       setBackendStatus('ok');
-
-      // Schedule (best-effort)
-      if (scheduleRes.ok) {
-        const s: ScheduleConfig = await scheduleRes.json();
-        setSchedule(s);
-      }
+      if (scheduleRes.ok) setSchedule(await scheduleRes.json());
     } catch {
+      consecutiveFailures.current += 1;
       setBackendStatus('unreachable');
     }
   }, []);
 
   useEffect(() => { bootstrap(); }, [bootstrap]);
-  // Poll every 5s while the pipeline is running so completion is detected quickly.
-  // Fall back to 15s when idle to reduce unnecessary requests.
+
   useEffect(() => {
-    const interval = backendStatus === 'running' ? 5000 : 15000;
-    const id = window.setInterval(() => { void bootstrap(); }, interval);
-    return () => window.clearInterval(id);
+    // Base interval: 5s when pipeline running, 15s when idle
+    const base = backendStatus === 'running' ? 5_000 : 15_000;
+    // Exponential backoff on consecutive failures: 15s → 30s → 60s (cap)
+    const backoff = consecutiveFailures.current > 0
+      ? Math.min(15_000 * 2 ** (consecutiveFailures.current - 1), 60_000)
+      : base;
+
+    const scheduleNext = () => {
+      const id = window.setTimeout(() => {
+        // Pause polling when tab is hidden — resume when visible again
+        if (document.visibilityState === 'hidden') {
+          scheduleNext();
+          return;
+        }
+        void bootstrap().then(() => scheduleNext());
+      }, backoff);
+      return id;
+    };
+
+    const id = scheduleNext();
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') void bootstrap();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      window.clearTimeout(id);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
   }, [bootstrap, backendStatus]);
 
   return (

@@ -1,11 +1,12 @@
 """Seed a user into the users table.
 
 Usage:
-    python scripts/seed_user.py <username> <password>
+    python scripts/seed_user.py <username>
 """
 from __future__ import annotations
 
 import asyncio
+import getpass
 import sys
 from pathlib import Path
 
@@ -38,7 +39,12 @@ async def seed(username: str, password: str) -> None:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print("Usage: python scripts/seed_user.py <username> <password>")
+    if len(sys.argv) != 2:
+        print("Usage: python scripts/seed_user.py <username>")
         sys.exit(1)
-    asyncio.run(seed(sys.argv[1], sys.argv[2]))
+    username = sys.argv[1]
+    password = getpass.getpass(f"Password for '{username}': ")
+    if not password:
+        print("Password cannot be empty.")
+        sys.exit(1)
+    asyncio.run(seed(username, password))
