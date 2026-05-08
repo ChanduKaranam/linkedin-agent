@@ -41,13 +41,19 @@ async def scrape_url(
     (no per-URL Chromium startup cost). When omitted, a per-call crawler is
     spawned (backwards-compatible for chat-tool callers).
 
-    Falls back to httpx+trafilatura when Crawl4AI fails or is unavailable.
+    When `SCRAPE_USE_HTTPX_ONLY=true` is set, Crawl4AI is skipped entirely.
+    This is required on Render free tier where Playwright's CPU usage starves
+    the asyncio event loop and breaks concurrent DB connections.
     """
+    from ...config import get_settings
+    use_httpx_only = get_settings().scrape_use_httpx_only
+
     # 1 — Crawl4AI (Playwright, handles JS-rendered pages)
-    page = await _crawl4ai_scrape(url, timeout, crawler=crawler)
-    if page and len(page.markdown) >= _MIN_MARKDOWN_LEN:
-        log.info("scrape_success", url=url, method="crawl4ai", chars=len(page.markdown))
-        return page
+    if not use_httpx_only:
+        page = await _crawl4ai_scrape(url, timeout, crawler=crawler)
+        if page and len(page.markdown) >= _MIN_MARKDOWN_LEN:
+            log.info("scrape_success", url=url, method="crawl4ai", chars=len(page.markdown))
+            return page
 
     # 2 & 3 — static fetcher with two extractors
     page = await _httpx_scrape(url, timeout)

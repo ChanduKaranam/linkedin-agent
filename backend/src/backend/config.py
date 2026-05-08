@@ -108,8 +108,13 @@ class Settings(BaseSettings):
     worker_poll_seconds: int = 5
     db_pool_size: int = 2
     db_max_overflow: int = 3
-    db_pool_timeout: int = 10
+    db_pool_timeout: int = 20
     db_pool_recycle: int = 900
+    # Set SCRAPE_USE_HTTPX_ONLY=true on Render/low-CPU hosts.
+    # Skips Crawl4AI/Playwright entirely; uses httpx+trafilatura only.
+    # Playwright starves the asyncio event loop on throttled CPUs, causing
+    # DB connection timeouts in concurrent requests during the scrape phase.
+    scrape_use_httpx_only: bool = False
     auth_last_seen_update_seconds: int = 300
     auth_cache_ttl_seconds: int = 20
 

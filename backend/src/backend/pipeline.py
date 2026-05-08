@@ -75,7 +75,13 @@ def _fire_background_index(
 
 
 async def _open_shared_crawler():
-    """Return (crawler, cleanup_coro) or (None, None) if Crawl4AI unavailable."""
+    """Return a shared AsyncWebCrawler, or None when unavailable / disabled.
+
+    Returns None immediately when SCRAPE_USE_HTTPX_ONLY=true — avoids even
+    importing Playwright on CPU-constrained hosts like Render free tier.
+    """
+    if get_settings().scrape_use_httpx_only:
+        return None
     try:
         from crawl4ai import AsyncWebCrawler, BrowserConfig
         browser_cfg = BrowserConfig(headless=True, verbose=False)
