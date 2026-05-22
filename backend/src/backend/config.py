@@ -25,6 +25,7 @@ class Limits(BaseModel):
     summarize_max_chars_per_source: int = 6000
     cluster_snippet_chars: int = 400
     cache_ttl_hours: int = 18
+    max_articles_for_synthesis: int = 25  # cap articles sent to LLM
 
 
 class Models(BaseModel):
@@ -99,17 +100,56 @@ class Settings(BaseSettings):
     session_cookie_secure: bool = False
     session_cookie_samesite: str = "lax"
     # Production controls for ad-hoc search memory/cost pressure.
-    adhoc_max_sources_per_run: int = 10
-    adhoc_max_per_query: int = 4
-    adhoc_scrape_concurrency: int = 2
+    adhoc_max_sources_per_run: int = 16
+    adhoc_max_per_query: int = 6
+    adhoc_scrape_concurrency: int = 4
     adhoc_summarize_max_chars_per_source: int = 2500
     rag_disable_rerank: bool = False
+    # Use API-based embedding (Mistral) instead of local fastembed model.
+    # Saves ~120 MB RAM on constrained hosts. Auto-enabled on Render.
+    rag_use_api_embed: bool = False
     run_pipeline_in_web_process: bool = True
     worker_poll_seconds: int = 5
     db_pool_size: int = 2
     db_max_overflow: int = 3
-    db_pool_timeout: int = 10
+    db_pool_timeout: int = 20
     db_pool_recycle: int = 900
+    # Skips Crawl4AI/Playwright; uses httpx+trafilatura only.
+    # Auto-detects Render (RENDER env var) — override with SCRAPE_USE_HTTPX_ONLY=false
+    # if you need JS rendering on Render (requires playwright install step).
+    scrape_use_httpx_only: bool = False
+    # Optional Jina AI Reader API key for higher rate limits (free without key: ~20 RPM).
+    # Sign up at https://jina.ai to get a key.
+    jina_api_key: str = ""
+    # Max sources to discover per pipeline run on Render (lower = less peak RAM)
+    render_max_sources_per_run: int = 15
+    render_max_per_query: int = 5
+
+    @model_validator(mode="after")
+    def _auto_render_settings(self) -> "Settings":
+        import os
+        on_render = bool(os.environ.get("RENDER"))
+        if on_render and not os.environ.get("SCRAPE_USE_HTTPX_ONLY"):
+            object.__setattr__(self, "scrape_use_httpx_only", True)
+        # Disable cross-encoder reranker on Render — saves ~110 MB of RAM.
+        if on_render and not os.environ.get("RAG_DISABLE_RERANK"):
+            object.__setattr__(self, "rag_disable_rerank", True)
+        # Use API-based embedding on Render — saves ~120 MB (no fastembed model loaded).
+        # RAG still works fully via Mistral's embedding API.
+        if on_render and not os.environ.get("RAG_USE_API_EMBED"):
+            object.__setattr__(self, "rag_use_api_embed", True)
+        # Cap ad-hoc scrape concurrency to 2 on Render to keep peak RAM under 512 MB.
+        if on_render and not os.environ.get("ADHOC_SCRAPE_CONCURRENCY"):
+            object.__setattr__(self, "adhoc_scrape_concurrency", 2)
+        # Tighter DB pool on Render — fewer idle connections = less RSS.
+        if on_render and not os.environ.get("DB_POOL_SIZE"):
+            object.__setattr__(self, "db_pool_size", 1)
+        if on_render and not os.environ.get("DB_MAX_OVERFLOW"):
+            object.__setattr__(self, "db_max_overflow", 2)
+        # Reduce max chars per source on Render to lower peak string memory.
+        if on_render and not os.environ.get("ADHOC_SUMMARIZE_MAX_CHARS_PER_SOURCE"):
+            object.__setattr__(self, "adhoc_summarize_max_chars_per_source", 1500)
+        return self
     auth_last_seen_update_seconds: int = 300
     auth_cache_ttl_seconds: int = 20
 
@@ -167,7 +207,21 @@ def get_settings() -> Settings:
 def get_topic_config() -> TopicConfig:
     global _topic_config
     if _topic_config is None:
-        _topic_config = load_topic_config()
+        cfg = load_topic_config()
+        # On Render, cap limits to keep peak memory under 512 MB
+        import os
+        if os.environ.get("RENDER"):
+            settings = get_settings()
+            cfg = cfg.model_copy(update={
+                "limits": cfg.limits.model_copy(update={
+                    "max_sources_per_run": min(cfg.limits.max_sources_per_run, settings.render_max_sources_per_run),
+                    "max_per_query": min(cfg.limits.max_per_query, settings.render_max_per_query),
+                    "scrape_concurrency": min(cfg.limits.scrape_concurrency, 2),
+                    "summarize_max_chars_per_source": min(cfg.limits.summarize_max_chars_per_source, 3000),
+                    "max_articles_for_synthesis": min(cfg.limits.max_articles_for_synthesis, 15),
+                })
+            })
+        _topic_config = cfg
     return _topic_config
 
 

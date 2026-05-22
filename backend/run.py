@@ -31,9 +31,12 @@ import uvicorn
 
 if __name__ == "__main__":
     reload = "--reload" in sys.argv
+    port = int(os.environ.get("PORT", 8000))
+    # Bind to 0.0.0.0 on cloud hosts (Render sets PORT env var); 127.0.0.1 locally
+    host = "0.0.0.0" if os.environ.get("RENDER") else "127.0.0.1"
     uvicorn.run(
         "src.backend.api.main:app",
-        host="127.0.0.1",
-        port=8000,
+        host=host,
+        port=port,
         reload=reload,
     )

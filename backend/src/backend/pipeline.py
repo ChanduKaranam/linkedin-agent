@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import hashlib
 import time
 from datetime import date, datetime, timezone
@@ -12,7 +13,7 @@ from rapidfuzz import fuzz
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .agent.tools.robots import is_allowed, polite_delay
-from .agent.tools.scrape import scrape_url
+from .agent.tools.scrape import scrape_url, tavily_batch_extract
 from .agent.tools.search import search_web
 from .agent.trend_agent import synthesize_all, synthesize_daily
 from .config import TopicConfig, get_settings
@@ -75,7 +76,13 @@ def _fire_background_index(
 
 
 async def _open_shared_crawler():
-    """Return (crawler, cleanup_coro) or (None, None) if Crawl4AI unavailable."""
+    """Return a shared AsyncWebCrawler, or None when unavailable / disabled.
+
+    Returns None immediately when SCRAPE_USE_HTTPX_ONLY=true — avoids even
+    importing Playwright on CPU-constrained hosts like Render free tier.
+    """
+    if get_settings().scrape_use_httpx_only:
+        return None
     try:
         from crawl4ai import AsyncWebCrawler, BrowserConfig
         browser_cfg = BrowserConfig(headless=True, verbose=False)
@@ -171,9 +178,27 @@ async def run_pipeline(
     sem = asyncio.Semaphore(limits.scrape_concurrency)
     crawler = await _open_shared_crawler()
 
+    # On datacenter IPs, pre-fetch via Tavily batch extract (up to 20 URLs per call).
+    # This is much more reliable than httpx on Render since Tavily bypasses bot-blocks.
+    settings = get_settings()
+    tavily_prefetch: dict = {}
+    if settings.scrape_use_httpx_only and settings.tavily_api_key:
+        prefetch_urls = [item["url"] for item in all_urls]
+        tavily_prefetch = await tavily_batch_extract(prefetch_urls, settings.tavily_api_key)
+        log.info("tavily_prefetch_complete", prefetched=len(tavily_prefetch), total=len(all_urls), run_id=run_id)
+
     try:
         async def _scrape_one(item: dict) -> tuple[dict, ScrapedPage | None]:
             async with sem:
+                # Check Tavily batch pre-fetch first
+                if item["url"] in tavily_prefetch:
+                    page = tavily_prefetch[item["url"]]
+                    page.markdown = page.markdown[:limits.summarize_max_chars_per_source]
+                    cache_key = hashlib.md5(item["url"].encode()).hexdigest()
+                    cache_file = cache_dir / f"{cache_key}.md"
+                    cache_file.write_text(page.markdown, encoding="utf-8")
+                    return item, page
+
                 await polite_delay(item["domain"], limits.per_domain_rps)
                 cache_key = hashlib.md5(item["url"].encode()).hexdigest()
                 cache_file = cache_dir / f"{cache_key}.md"
@@ -214,11 +239,15 @@ async def run_pipeline(
             scrape_warnings += 1
 
     fail_rate = 1 - (len(scraped) / max(len(all_urls), 1))
-    if fail_rate > 0.5:
+    if fail_rate > 0.9:
         await update_run_state(session, run_id, "failed", 0, 0, "SCRAPE_MAJORITY_FAILED")
         raise RuntimeError("SCRAPE_MAJORITY_FAILED")
 
     log.info("scrape_complete", scraped=len(scraped), total=len(all_urls), run_id=run_id)
+
+    # Free scrape-phase temporaries before synthesis to lower peak memory
+    del scrape_results, tavily_prefetch
+    gc.collect()
 
     # ── Phase 3: Daily Synthesis ───────────────────────────────────────────
     await update_run_state(session, run_id, "summarizing")
@@ -226,11 +255,18 @@ async def run_pipeline(
     log.info("phase_start", phase="daily_synthesis", run_id=run_id, article_count=len(scraped))
 
     chars_per_article = min(limits.summarize_max_chars_per_source, 1200)
-    capped_scraped = scraped[:25]
+    capped_scraped = scraped[:limits.max_articles_for_synthesis]
     content_parts = [
         f"# {page.title}\nSource: {page.url}\n\n{page.markdown[:chars_per_article]}"
         for item, page in capped_scraped
     ]
+    # Pad with search snippets for every URL that failed to scrape — gives the LLM
+    # at least a title + snippet for paywalled/blocked/JS-rendered sites.
+    scraped_urls = {page.url for _, page in scraped}
+    for item in all_urls:
+        if item["url"] not in scraped_urls and item.get("snippet"):
+            content_parts.append(f"# {item['title']}\nSource: {item['url']}\n\n{item['snippet']}")
+
     all_sources = [
         Source(url=item["url"], title=item["title"] or item["domain"], domain=item["domain"])
         for item in all_urls
@@ -446,9 +482,26 @@ async def run_search_synthesis(
     sem = asyncio.Semaphore(limits.scrape_concurrency)
     crawler = await _open_shared_crawler()
 
+    # On datacenter IPs, pre-fetch via Tavily batch extract.
+    settings = get_settings()
+    tavily_prefetch: dict = {}
+    if settings.scrape_use_httpx_only and settings.tavily_api_key:
+        prefetch_urls = [item["url"] for item in all_urls]
+        tavily_prefetch = await tavily_batch_extract(prefetch_urls, settings.tavily_api_key)
+        log.info("tavily_prefetch_complete", prefetched=len(tavily_prefetch), total=len(all_urls), run_id=run_id)
+
     try:
         async def _scrape_one(item: dict) -> tuple[dict, ScrapedPage | None]:
             async with sem:
+                # Check Tavily batch pre-fetch first
+                if item["url"] in tavily_prefetch:
+                    page = tavily_prefetch[item["url"]]
+                    page.markdown = page.markdown[:limits.summarize_max_chars_per_source]
+                    cache_key = hashlib.md5(item["url"].encode()).hexdigest()
+                    cache_file = cache_dir / f"{cache_key}.md"
+                    cache_file.write_text(page.markdown, encoding="utf-8")
+                    return item, page
+
                 await polite_delay(item["domain"], limits.per_domain_rps)
                 cache_key = hashlib.md5(item["url"].encode()).hexdigest()
                 cache_file = cache_dir / f"{cache_key}.md"
@@ -484,22 +537,31 @@ async def run_search_synthesis(
         if page:
             scraped.append((item, page))
 
-    fail_rate = 1 - (len(scraped) / max(len(all_urls), 1))
-    if fail_rate > 0.5:
+    # Count URLs that have either scraped content OR a search snippet — these are usable.
+    scraped_urls = {page.url for _, page in scraped}
+    snippet_fallbacks = [u for u in all_urls if u["url"] not in scraped_urls and u.get("snippet")]
+    usable = len(scraped) + len(snippet_fallbacks)
+    if usable == 0:
         await update_run_state(session, run_id, "failed", 0, 0, "SCRAPE_MAJORITY_FAILED")
         raise RuntimeError("SCRAPE_MAJORITY_FAILED")
 
-    log.info("scrape_complete", scraped=len(scraped), total=len(all_urls), run_id=run_id)
+    log.info("scrape_complete", scraped=len(scraped), snippets=len(snippet_fallbacks),
+             total=len(all_urls), run_id=run_id)
+
+    # Free scrape-phase temporaries before synthesis to lower peak memory
+    del scrape_results, tavily_prefetch
+    gc.collect()
 
     await update_run_state(session, run_id, "summarizing")
     await session.commit()  # release connection during LLM synthesis call
-    log.info("phase_start", phase="synthesize", run_id=run_id, source_count=len(scraped))
+    log.info("phase_start", phase="synthesize", run_id=run_id, source_count=usable)
 
     content_parts = [
         f"# {page.title}\nSource: {page.url}\n\n{page.markdown[:limits.summarize_max_chars_per_source]}"
         for item, page in scraped
     ]
-    scraped_urls = {page.url for _, page in scraped}
+    # Pad with search snippets for every URL that failed to scrape — gives the LLM
+    # at least a title + snippet for paywalled/blocked/JS-rendered sites.
     for item in all_urls:
         if item["url"] not in scraped_urls and item.get("snippet"):
             content_parts.append(f"# {item['title']}\nSource: {item['url']}\n\n{item['snippet']}")

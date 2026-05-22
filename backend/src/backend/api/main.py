@@ -243,14 +243,19 @@ app = FastAPI(
     redoc_url=None,
 )
 
+_frontend_url = get_settings().frontend_base_url.rstrip("/")
+_cors_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
+]
+if _frontend_url and _frontend_url not in _cors_origins:
+    _cors_origins.append(_frontend_url)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:3001",
-        "http://127.0.0.1:3001",
-    ],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],

@@ -10,11 +10,11 @@ queries:
 - machine learning tools launched this week
 limits:
   max_sources_per_run: 30
-  max_per_query: 10
-  scrape_timeout_seconds: 25
-  scrape_concurrency: 4
+  max_per_query: 8
+  scrape_timeout_seconds: 20
+  scrape_concurrency: 2
   per_domain_rps: 0.5
-  summarize_max_chars_per_source: 6000
+  summarize_max_chars_per_source: 3000
   cluster_snippet_chars: 400
 models:
   cluster: mistral/mistral-large-latest
