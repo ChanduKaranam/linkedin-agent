@@ -26,6 +26,7 @@ export default function PostStudio({ postsApiBase, linkedinApiBase, blogApiBase,
   const [blogPost, setBlogPost] = useState<GeneratedPost | null>(null);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [style, setStyle] = useState<'leadership' | 'technical'>('leadership');
 
   const currentPost = tab === 'linkedin' ? linkedinPost : blogPost;
 
@@ -60,7 +61,7 @@ export default function PostStudio({ postsApiBase, linkedinApiBase, blogApiBase,
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_instructions: '' }),
+        body: JSON.stringify({ user_instructions: '', style: style }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({})) as Record<string, unknown>;
@@ -135,13 +136,45 @@ export default function PostStudio({ postsApiBase, linkedinApiBase, blogApiBase,
           )}
 
           {!currentPost ? (
-            <div className="flex flex-col items-center gap-4 py-8 px-6 text-center">
-              <p className="text-sm text-on-surface-variant max-w-sm">
+            <div className="flex flex-col items-center gap-4 py-8 px-6 text-center max-w-sm mx-auto">
+              <p className="text-sm text-on-surface-variant">
                 {tab === 'linkedin'
                   ? 'Generate a LinkedIn post based on this trend and your conversation.'
                   : 'Generate a blog post based on this trend and your conversation.'}
               </p>
-              <button onClick={handleGenerateFirst} disabled={generating} className="btn-primary py-2 px-6 text-[10px] disabled:opacity-50">
+
+              {/* Style Selection */}
+              <div className="flex flex-col gap-1.5 w-full mt-2">
+                <label className="label-bold text-[9px] text-left">Style Choice</label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setStyle('leadership')}
+                    className={cn(
+                      'flex-1 py-1 px-2.5 text-[9px] font-bold uppercase tracking-widest border transition-colors',
+                      style === 'leadership'
+                        ? 'bg-primary text-on-primary border-primary'
+                        : 'bg-surface-container-lowest text-on-surface-variant border-outline-variant hover:border-primary hover:text-primary',
+                    )}
+                  >
+                    Leadership
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStyle('technical')}
+                    className={cn(
+                      'flex-1 py-1 px-2.5 text-[9px] font-bold uppercase tracking-widest border transition-colors',
+                      style === 'technical'
+                        ? 'bg-primary text-on-primary border-primary'
+                        : 'bg-surface-container-lowest text-on-surface-variant border-outline-variant hover:border-primary hover:text-primary',
+                    )}
+                  >
+                    Technical
+                  </button>
+                </div>
+              </div>
+
+              <button onClick={handleGenerateFirst} disabled={generating} className="btn-primary py-2 px-6 text-[10px] disabled:opacity-50 w-full mt-2">
                 {generating ? 'Generating…' : `Generate ${tab === 'linkedin' ? 'LinkedIn Post' : 'Blog Post'}`}
               </button>
             </div>

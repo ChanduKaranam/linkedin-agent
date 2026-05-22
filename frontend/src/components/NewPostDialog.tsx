@@ -41,6 +41,9 @@ export default function NewPostDialog({ open, kind, onClose, onCreated }: NewPos
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Style selection
+  const [style, setStyle] = useState<'leadership' | 'technical'>('leadership');
+
   // Load all sources when dialog opens
   useEffect(() => {
     if (!open) return;
@@ -48,6 +51,7 @@ export default function NewPostDialog({ open, kind, onClose, onCreated }: NewPos
     setSelected(null);
     setSearchQuery('');
     setInstructions('');
+    setStyle('leadership');
     setError(null);
     setLoadingSources(true);
 
@@ -164,7 +168,10 @@ export default function NewPostDialog({ open, kind, onClose, onCreated }: NewPos
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_instructions: instructions.trim() }),
+        body: JSON.stringify({
+          user_instructions: instructions.trim(),
+          style: style,
+        }),
         signal: AbortSignal.timeout(120_000),
       });
       if (!res.ok) {
@@ -354,7 +361,38 @@ export default function NewPostDialog({ open, kind, onClose, onCreated }: NewPos
               </div>
 
               {/* Instructions + Generate */}
-              <div className="px-6 py-3 border-t border-outline-variant shrink-0 flex flex-col gap-2">
+              <div className="px-6 py-3 border-t border-outline-variant shrink-0 flex flex-col gap-2.5">
+                {/* Style Selector */}
+                <div className="flex flex-col gap-1.5">
+                  <label className="label-bold text-[10px]">Style Selection</label>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setStyle('leadership')}
+                      className={cn(
+                        'flex-1 py-1.5 text-[10px] font-bold uppercase tracking-widest border transition-colors',
+                        style === 'leadership'
+                          ? 'bg-primary text-on-primary border-primary'
+                          : 'bg-surface-container-lowest text-on-surface-variant border-outline-variant hover:border-primary hover:text-primary',
+                      )}
+                    >
+                      Leadership Style
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStyle('technical')}
+                      className={cn(
+                        'flex-1 py-1.5 text-[10px] font-bold uppercase tracking-widest border transition-colors',
+                        style === 'technical'
+                          ? 'bg-primary text-on-primary border-primary'
+                          : 'bg-surface-container-lowest text-on-surface-variant border-outline-variant hover:border-primary hover:text-primary',
+                      )}
+                    >
+                      Technical Style
+                    </button>
+                  </div>
+                </div>
+
                 <div className="flex flex-col gap-1.5">
                   <label className="label-bold text-[10px]">
                     Instructions{' '}

@@ -10,7 +10,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..agent.post_writer import generate_blog_post, generate_linkedin_post
+from ..agent.post_writer import generate_blog_post, generate_linkedin_post, evaluate_post_draft
 from ..db import get_session
 from ..integrations import linkedin as li
 from ..integrations.linkedin import LinkedInAuthError
@@ -154,11 +154,16 @@ async def generate_daily_linkedin(
     )
     result = await generate_linkedin_post(
         trend, chat_history, insights, style_profile, style_samples,
+        style=body.style,
         user_instructions=body.user_instructions,
+    )
+    evaluation = await evaluate_post_draft(
+        result["content"], "linkedin", body.style, trend.headline, trend.one_liner
     )
     post_id = await create_generated_post(
         session, "linkedin", trend.run_id, run_date, slug,
         result["content"], result["hashtags"], headline=trend.headline,
+        style_chosen=body.style, evaluation=evaluation,
     )
     bg.add_task(_bg_refresh_profile, trend.run_id)
     post = await get_generated_post(session, post_id)
@@ -188,12 +193,17 @@ async def generate_daily_blog(
     )
     result = await generate_blog_post(
         trend, chat_history, insights, style_profile, style_samples,
+        style=body.style,
         user_instructions=body.user_instructions,
     )
     content = f"# {result['title']}\n\n{result['content_markdown']}"
+    evaluation = await evaluate_post_draft(
+        content, "blog", body.style, trend.headline, trend.one_liner
+    )
     post_id = await create_generated_post(
         session, "blog", trend.run_id, run_date, slug,
         content, result["tags"], headline=trend.headline,
+        style_chosen=body.style, evaluation=evaluation,
     )
     post = await get_generated_post(session, post_id)
     log.info(
@@ -230,11 +240,16 @@ async def generate_run_linkedin(
     )
     result = await generate_linkedin_post(
         trend, chat_history, insights, style_profile, style_samples,
+        style=body.style,
         user_instructions=body.user_instructions,
+    )
+    evaluation = await evaluate_post_draft(
+        result["content"], "linkedin", body.style, trend.headline, trend.one_liner
     )
     post_id = await create_generated_post(
         session, "linkedin", run_id, trend.run_date, slug,
         result["content"], result["hashtags"], headline=trend.headline,
+        style_chosen=body.style, evaluation=evaluation,
     )
     bg.add_task(_bg_refresh_profile, run_id)
     post = await get_generated_post(session, post_id)
@@ -264,12 +279,17 @@ async def generate_run_blog(
     )
     result = await generate_blog_post(
         trend, chat_history, insights, style_profile, style_samples,
+        style=body.style,
         user_instructions=body.user_instructions,
     )
     content = f"# {result['title']}\n\n{result['content_markdown']}"
+    evaluation = await evaluate_post_draft(
+        content, "blog", body.style, trend.headline, trend.one_liner
+    )
     post_id = await create_generated_post(
         session, "blog", run_id, trend.run_date, slug,
         content, result["tags"], headline=trend.headline,
+        style_chosen=body.style, evaluation=evaluation,
     )
     post = await get_generated_post(session, post_id)
     log.info(
@@ -290,7 +310,21 @@ async def patch_post(post_id: int, body: GeneratedPostPatchIn, session: SessionD
     post = await get_generated_post(session, post_id)
     if post is None:
         raise HTTPException(status_code=404, detail="Post not found.")
-    await update_generated_post_content(session, post_id, body.content_markdown, body.tags)
+    
+    # Re-evaluate the new content
+    from datetime import date
+    run_date_val = date.fromisoformat(post["run_date"])
+    trend = await get_trend_by_slug(session, run_date_val, post["slug"])
+    
+    trend_headline = trend.headline if trend else post.get("headline", "")
+    trend_one_liner = trend.one_liner if trend else ""
+    
+    style = post.get("style_chosen") or "leadership"
+    evaluation = await evaluate_post_draft(
+        body.content_markdown, post["kind"], style, trend_headline, trend_one_liner
+    )
+    
+    await update_generated_post_content(session, post_id, body.content_markdown, body.tags, evaluation=evaluation)
     # User edits are high-quality style signal — record them
     await add_style_sample(session, "post_edit", body.content_markdown, source_ref=post_id)
     updated = await get_generated_post(session, post_id)
