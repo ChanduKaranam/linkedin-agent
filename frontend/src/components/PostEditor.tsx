@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import rehypeSanitize from 'rehype-sanitize';
-import { Copy, Download, Image, X, Send, Trash2 } from 'lucide-react';
+import { Copy, Download, Image, X, Send, Trash2, Check, AlertTriangle, ArrowRight, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { GeneratedPost, LinkedInStatus, Insight } from '@/types';
 import { useToast } from '@/context/ToastContext';
@@ -24,7 +24,7 @@ interface PostEditorProps {
   showPublish?: boolean;
 }
 
-type ViewMode = 'edit' | 'preview';
+type ViewMode = 'edit' | 'preview' | 'audit';
 
 export function LinkedInPreviewCard({
   content,
@@ -161,7 +161,10 @@ export default function PostEditor({
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_instructions: regenInstructions.trim() }),
+        body: JSON.stringify({
+          user_instructions: regenInstructions.trim(),
+          style: post.style_chosen || 'leadership',
+        }),
         signal: AbortSignal.timeout(120_000),
       });
       if (!res.ok) {
@@ -179,6 +182,69 @@ export default function PostEditor({
       pushToast('Post generation failed due to network error.', 'error');
     }
     finally { setGenerating(false); }
+  }
+
+  async function handleAutoRefine() {
+    if (!post.evaluation?.suggestions?.length) return;
+    setGenerating(true);
+    setError(null);
+    const url = kind === 'linkedin' ? linkedinApiBase : blogApiBase;
+    const suggestionsText = `Please refine this post draft to address the following critiques:\n${post.evaluation.suggestions.map((s, idx) => `- ${s}`).join('\n')}`;
+
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_instructions: suggestionsText,
+          style: post.style_chosen || 'leadership',
+        }),
+        signal: AbortSignal.timeout(120_000),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as Record<string, unknown>;
+        setError(String(err.detail ?? err.error ?? 'Auto-refinement failed. Please try again.'));
+        pushToast('Auto-refinement failed.', 'error');
+        return;
+      }
+      const updated: GeneratedPost = await res.json();
+      onUpdated(updated);
+      pushToast('Post auto-refined and re-evaluated successfully.', 'success');
+      setViewMode('edit');
+    } catch {
+      setError('Network error. Is the backend running?');
+      pushToast('Auto-refinement failed due to network error.', 'error');
+    }
+    finally { setGenerating(false); }
+  }
+
+  async function handleRunEvaluation() {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/posts/by-id/${post.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content_markdown: editedContent,
+          tags: editedTags,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as Record<string, unknown>;
+        setError(String(err.detail ?? 'Failed to run evaluation.'));
+        pushToast('Running evaluation failed.', 'error');
+        return;
+      }
+      const updated: GeneratedPost = await res.json();
+      onUpdated(updated);
+      pushToast('Evaluation generated successfully.', 'success');
+    } catch {
+      setError('Network error.');
+      pushToast('Evaluation failed due to network error.', 'error');
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleSaveEdits() {
@@ -307,13 +373,51 @@ export default function PostEditor({
         <button onClick={handleCopy} className="btn-secondary py-1.5 px-3 text-[10px]">
           <Copy size={11} /> {copied ? 'Copied!' : 'Copy'}
         </button>
-        <button
-          onClick={() => setViewMode((v) => (v === 'edit' ? 'preview' : 'edit'))}
-          className={cn('py-1.5 px-3 text-[10px] font-bold uppercase tracking-widest border transition-colors',
-            viewMode === 'preview' ? 'bg-primary text-on-primary border-primary' : 'border-outline-variant text-on-surface-variant hover:border-primary')}
-        >
-          {viewMode === 'preview' ? 'Edit' : 'Preview'}
-        </button>
+        <div className="inline-flex border border-outline-variant bg-surface-container-lowest">
+          <button
+            onClick={() => setViewMode('edit')}
+            className={cn(
+              'py-1.5 px-3 text-[10px] font-bold uppercase tracking-widest border-r border-outline-variant transition-colors',
+              viewMode === 'edit'
+                ? 'bg-primary text-on-primary border-primary'
+                : 'text-on-surface-variant hover:text-primary'
+            )}
+          >
+            Edit
+          </button>
+          <button
+            onClick={() => setViewMode('preview')}
+            className={cn(
+              'py-1.5 px-3 text-[10px] font-bold uppercase tracking-widest border-r border-outline-variant transition-colors',
+              viewMode === 'preview'
+                ? 'bg-primary text-on-primary border-primary'
+                : 'text-on-surface-variant hover:text-primary'
+            )}
+          >
+            Preview
+          </button>
+          <button
+            onClick={() => setViewMode('audit')}
+            className={cn(
+              'py-1.5 px-3 text-[10px] font-bold uppercase tracking-widest transition-colors flex items-center gap-1.5',
+              viewMode === 'audit'
+                ? 'bg-primary text-on-primary border-primary'
+                : 'text-on-surface-variant hover:text-primary'
+            )}
+          >
+            Audit Score
+            {post.evaluation?.score !== undefined && (
+              <span className={cn(
+                'ml-1 px-1.5 py-0.5 text-[9px] font-mono font-bold leading-none border',
+                viewMode === 'audit'
+                  ? 'bg-white text-black border-white'
+                  : 'bg-primary text-on-primary border-primary'
+              )}>
+                {post.evaluation.score.toFixed(1)}
+              </span>
+            )}
+          </button>
+        </div>
         {kind === 'blog' && (
           <button onClick={handleDownload} className="btn-secondary py-1.5 px-3 text-[10px]">
             <Download size={11} /> Download .md
@@ -402,25 +506,27 @@ export default function PostEditor({
         )}
       </div>
 
-      {/* Content editor / preview */}
-      {viewMode === 'preview' ? (
+      {/* Content editor / preview / audit */}
+      {viewMode === 'preview' && (
         kind === 'linkedin' ? (
           <LinkedInPreviewCard content={editedContent} hashtags={editedTags} photoUrl={photoUrl} />
         ) : (
-          <div className="border border-outline-variant bg-surface-container-lowest overflow-hidden">
+          <div className="border border-outline-variant bg-surface-container-lowest overflow-hidden shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
             {photoUrl && <img src={photoUrl} alt="Blog header" className="w-full max-h-[300px] object-cover" />}
             <div className="prose prose-neutral prose-sm max-w-none p-6 max-h-[600px] overflow-y-auto">
               <ReactMarkdown rehypePlugins={[rehypeSanitize]}>{editedContent}</ReactMarkdown>
             </div>
           </div>
         )
-      ) : (
+      )}
+
+      {viewMode === 'edit' && (
         <>
           <textarea
             value={editedContent}
             onChange={(e) => setEditedContent(e.target.value)}
             className={cn(
-              'w-full resize-y border bg-surface-container-lowest text-on-surface px-4 py-3 text-sm font-mono leading-relaxed outline-none focus:border-2 placeholder:text-outline min-h-[300px] max-h-[600px] transition-all',
+              'w-full resize-y border bg-surface-container-lowest text-on-surface px-4 py-3 text-sm font-mono leading-relaxed outline-none focus:border-2 placeholder:text-outline min-h-[300px] max-h-[600px] transition-all shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] focus:shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]',
               overLimit ? 'border-red-500 focus:border-red-500' : 'border-outline-variant focus:border-primary'
             )}
             placeholder="Generated content will appear here…"
@@ -432,6 +538,125 @@ export default function PostEditor({
             </p>
           )}
         </>
+      )}
+
+      {viewMode === 'audit' && (
+        <div className="flex flex-col gap-6 max-w-2xl mx-auto w-full">
+          {post.evaluation ? (
+            <>
+              {/* Overall Score Card */}
+              <div className="flex items-center gap-4 card shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] border-primary bg-surface-container-low">
+                <div className="w-16 h-16 border-2 border-primary bg-white text-black font-mono font-bold text-2xl flex items-center justify-center shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] flex-shrink-0">
+                  {post.evaluation.score.toFixed(1)}
+                </div>
+                <div>
+                  <h4 className="font-bold text-sm tracking-tight">Post Quality Score</h4>
+                  <p className="text-xs text-on-surface-variant leading-relaxed">
+                    This post was evaluated against the <span className="font-bold uppercase">{post.style_chosen || 'leadership'}</span> style constraints.
+                  </p>
+                </div>
+              </div>
+
+              {/* Strengths Card */}
+              <div className="card shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] border-outline-variant bg-surface-container-lowest">
+                <p className="label-bold text-green-700 flex items-center gap-2 mb-3">
+                  <Check size={14} className="stroke-[3px]" /> Strengths & Highlights
+                </p>
+                {post.evaluation.strengths.length > 0 ? (
+                  <ul className="space-y-2">
+                    {post.evaluation.strengths.map((str, idx) => (
+                      <li key={idx} className="text-xs text-on-surface flex items-start gap-2">
+                        <span className="text-green-700 font-bold flex-shrink-0">•</span>
+                        <span>{str}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-xs text-outline italic">No notable strengths identified.</p>
+                )}
+              </div>
+
+              {/* Critiques Card */}
+              <div className="card shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] border-outline-variant bg-surface-container-lowest">
+                <p className="label-bold text-amber-700 flex items-center gap-2 mb-3">
+                  <AlertTriangle size={14} className="stroke-[2.5px]" /> Critiques & Weaknesses
+                </p>
+                {post.evaluation.critique.length > 0 ? (
+                  <ul className="space-y-2">
+                    {post.evaluation.critique.map((crit, idx) => (
+                      <li key={idx} className="text-xs text-on-surface flex items-start gap-2">
+                        <span className="text-amber-700 font-bold flex-shrink-0">•</span>
+                        <span>{crit}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-xs text-green-700 italic">No weaknesses found. Exceptional work!</p>
+                )}
+              </div>
+
+              {/* Actionable Suggestions & Auto-Refine Card */}
+              <div className="card shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] border-primary bg-primary/5 flex flex-col gap-4">
+                <div>
+                  <p className="label-bold text-primary flex items-center gap-2 mb-3">
+                    <Sparkles size={14} className="stroke-[2.5px] text-primary" /> Actionable Suggestions
+                  </p>
+                  {post.evaluation.suggestions.length > 0 ? (
+                    <ul className="space-y-2">
+                      {post.evaluation.suggestions.map((sug, idx) => (
+                        <li key={idx} className="text-xs text-on-surface flex items-start gap-2">
+                          <ArrowRight size={12} className="text-primary mt-0.5 flex-shrink-0" />
+                          <span>{sug}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-xs text-outline italic">No actionable suggestions needed.</p>
+                  )}
+                </div>
+
+                {post.evaluation.suggestions.length > 0 && (
+                  <button
+                    onClick={handleAutoRefine}
+                    disabled={generating || saving}
+                    className="btn-primary w-full py-2.5 text-[10px]"
+                  >
+                    {generating ? (
+                      <span className="flex items-center gap-2 justify-center">
+                        <span className="w-3.5 h-3.5 border-2 border-on-primary border-t-transparent animate-spin" />
+                        Refining Draft…
+                      </span>
+                    ) : (
+                      <>
+                        <Sparkles size={12} />
+                        Auto-Refine Draft
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="card shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] flex flex-col items-center justify-center py-12 text-center gap-4">
+              <div className="p-3 bg-surface-container border border-outline-variant">
+                <AlertTriangle size={24} className="text-outline" />
+              </div>
+              <div>
+                <h4 className="font-bold text-sm">No Evaluation Data Available</h4>
+                <p className="text-xs text-on-surface-variant mt-1 max-w-sm">
+                  This post has not been evaluated yet. Run evaluation to analyze style alignment, strengths, and critiques.
+                </p>
+              </div>
+              <button
+                onClick={handleRunEvaluation}
+                disabled={saving}
+                className="btn-primary py-2 px-6 text-[10px]"
+              >
+                {saving ? 'Evaluating…' : 'Run Evaluation'}
+              </button>
+            </div>
+          )}
+        </div>
       )}
 
       {/* Tag editor */}

@@ -706,6 +706,8 @@ async def create_generated_post(
     content_markdown: str,
     tags: list[str],
     headline: str = "",
+    style_chosen: str | None = None,
+    evaluation: dict | None = None,
 ) -> int:
     if kind not in _POST_KINDS:
         raise ValueError(f"Invalid generated post kind: {kind!r}")
@@ -722,6 +724,8 @@ async def create_generated_post(
         content_markdown=content_markdown,
         tags_json=tags,
         status="draft",
+        style_chosen=style_chosen,
+        evaluation_json=evaluation,
         created_at=now,
         updated_at=now,
     )
@@ -784,11 +788,12 @@ async def update_generated_post_content(
     content_markdown: str,
     tags: list[str],
     status: str = "edited",
+    evaluation: dict | None = None,
 ) -> None:
     await session.execute(
         update(GeneratedPost)
         .where(GeneratedPost.id == post_id)
-        .values(content_markdown=content_markdown, tags_json=tags, status=status, updated_at=datetime.now(timezone.utc))
+        .values(content_markdown=content_markdown, tags_json=tags, status=status, evaluation_json=evaluation, updated_at=datetime.now(timezone.utc))
     )
     await session.commit()
 
@@ -822,6 +827,8 @@ def _orm_to_post(row: GeneratedPost) -> dict:
         "tags": row.tags_json,
         "status": row.status,
         "linkedin_post_urn": row.linkedin_post_urn,
+        "style_chosen": row.style_chosen,
+        "evaluation": row.evaluation_json,
         "created_at": row.created_at.isoformat(),
         "updated_at": row.updated_at.isoformat(),
     }

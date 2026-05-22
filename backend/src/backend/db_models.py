@@ -147,6 +147,8 @@ class GeneratedPost(Base):
     tags_json: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     status: Mapped[str] = mapped_column(String, nullable=False, default="draft")  # draft | edited | published
     linkedin_post_urn: Mapped[str | None] = mapped_column(Text, nullable=True)
+    style_chosen: Mapped[str | None] = mapped_column(String, nullable=True)
+    evaluation_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 

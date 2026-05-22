@@ -165,6 +165,8 @@ class GeneratedPostOut(BaseModel):
     tags: list[str]
     status: Literal["draft", "edited", "published"]
     linkedin_post_urn: str | None
+    style_chosen: Literal["leadership", "technical"] | None = None
+    evaluation: dict | None = None
     created_at: str
     updated_at: str
 
@@ -176,6 +178,7 @@ class GeneratedPostPatchIn(BaseModel):
 
 class GeneratePostIn(BaseModel):
     user_instructions: str = Field(default="", max_length=2000)
+    style: Literal["leadership", "technical"] = "leadership"
 
 
 class LinkedInStatusOut(BaseModel):

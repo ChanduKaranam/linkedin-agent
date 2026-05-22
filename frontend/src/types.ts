@@ -104,6 +104,13 @@ export interface InsightListItem extends Insight {
   headline: string;
 }
 
+export interface PostEvaluation {
+  score: number;
+  strengths: string[];
+  critique: string[];
+  suggestions: string[];
+}
+
 export interface GeneratedPost {
   id: number;
   kind: 'linkedin' | 'blog';
@@ -114,6 +121,8 @@ export interface GeneratedPost {
   tags: string[];
   status: 'draft' | 'edited' | 'published';
   linkedin_post_urn: string | null;
+  style_chosen?: 'leadership' | 'technical';
+  evaluation?: PostEvaluation;
   created_at: string;
   updated_at: string;
 }
