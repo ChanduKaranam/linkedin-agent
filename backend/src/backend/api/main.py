@@ -42,8 +42,10 @@ log = get_logger(__name__)
 _active_scheduler = None
 _run_lock = asyncio.Lock()  # prevents concurrent daily runs (catch-up + APScheduler race)
 _catchup_task: asyncio.Task | None = None
+_keep_alive_task: asyncio.Task | None = None
 _STALE_RUN_TIMEOUT_HOURS = 2  # runs stuck in-progress longer than this are auto-failed
 _RETENTION_DAYS = 15  # keep this many days of daily trend data; older data is purged
+_KEEP_ALIVE_INTERVAL_SECONDS = 5 * 60  # 5 minutes — Render spins down after 15 min idle
 
 
 def _runtime_metrics() -> dict[str, int | float]:
@@ -115,9 +117,28 @@ async def _purge_old_data() -> None:
     )
 
 
+async def _keep_alive_loop() -> None:
+    """Ping our own /ping endpoint every 10 min to prevent Render free-tier spin-down."""
+    import httpx
+    render_url = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
+    if not render_url:
+        log.warning("keep_alive_no_url", reason="RENDER_EXTERNAL_URL not set")
+        return
+    ping_url = f"{render_url}/ping"
+    log.info("keep_alive_started", ping_url=ping_url, interval_seconds=_KEEP_ALIVE_INTERVAL_SECONDS)
+    while True:
+        await asyncio.sleep(_KEEP_ALIVE_INTERVAL_SECONDS)
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(ping_url)
+            log.debug("keep_alive_ping_ok", status=resp.status_code)
+        except Exception as exc:
+            log.warning("keep_alive_ping_failed", error=str(exc))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _active_scheduler, _catchup_task
+    global _active_scheduler, _catchup_task, _keep_alive_task
     settings = get_settings()
     setup_logging(settings.logs_dir)
 
@@ -202,11 +223,17 @@ async def lifespan(app: FastAPI):
     elif settings.enable_inprocess_scheduler and not settings.run_pipeline_in_web_process:
         log.warning("scheduler_disabled_in_web_process", reason="run_pipeline_in_web_process=false")
 
+    # Keep-alive: only on Render (RENDER env var is set automatically by the platform)
+    if os.environ.get("RENDER"):
+        _keep_alive_task = asyncio.create_task(_keep_alive_loop())
+
     yield
 
     _active_scheduler = None
     if scheduler:
         scheduler.shutdown(wait=False)
+    if _keep_alive_task:
+        _keep_alive_task.cancel()
     await stop_log_worker()
     await dispose_engine()
 
@@ -270,3 +297,9 @@ app.include_router(search_router, **_protected)
 app.include_router(chat_router, **_protected)
 app.include_router(posts_router, **_protected)
 app.include_router(slack_router, **_protected)
+
+
+@app.get("/ping", include_in_schema=False)
+async def ping() -> dict[str, bool]:
+    """Public liveness probe — used by the keep-alive loop to prevent Render spin-down."""
+    return {"ok": True}
