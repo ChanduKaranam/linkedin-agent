@@ -122,8 +122,8 @@ def oauth_start(state: str | None = None) -> str:
     return f"{_LI_AUTH_URL}?{urllib.parse.urlencode(params)}"
 
 
-async def oauth_callback(session: AsyncSession, code: str) -> dict:
-    """Exchange authorization code for tokens, fetch member URN, persist."""
+async def oauth_callback(session: AsyncSession, user_id: int, code: str) -> dict:
+    """Exchange authorization code for tokens, fetch member URN, persist per-user."""
     settings = get_settings()
     async with httpx.AsyncClient(timeout=15) as client:
         token_resp = await client.post(
@@ -157,13 +157,13 @@ async def oauth_callback(session: AsyncSession, code: str) -> dict:
     member_urn = f"urn:li:person:{member_id}"
     member_name = _extract_member_name(me_data)
 
-    await upsert_linkedin_account(session, _encrypt_token(access_token), refresh_token and _encrypt_token(refresh_token), expires_at, member_urn, member_name)
-    log.info("linkedin_oauth_connected", member_urn=member_urn, member_name=member_name)
+    await upsert_linkedin_account(session, user_id, _encrypt_token(access_token), refresh_token and _encrypt_token(refresh_token), expires_at, member_urn, member_name)
+    log.info("linkedin_oauth_connected", member_urn=member_urn, member_name=member_name, user_id=user_id)
     return {"member_urn": member_urn, "member_name": member_name, "expires_at": expires_at.isoformat()}
 
 
-async def get_connection_status(session: AsyncSession) -> dict:
-    account = await get_linkedin_account(session)
+async def get_connection_status(session: AsyncSession, user_id: int) -> dict:
+    account = await get_linkedin_account(session, user_id)
     if account is None:
         return {"connected": False, "expires_at": None, "member_urn": None, "member_name": None}
     now = datetime.now(timezone.utc)
@@ -186,6 +186,7 @@ async def get_connection_status(session: AsyncSession) -> dict:
                         member_name = fetched_name
                         await upsert_linkedin_account(
                             session,
+                            user_id,
                             account["access_token"],  # already encrypted
                             account.get("refresh_token"),
                             account["expires_at"],
@@ -265,6 +266,7 @@ async def _upload_linkedin_image(access_token: str, owner_urn: str, image_data_u
 
 async def publish_post(
     session: AsyncSession,
+    user_id: int,
     content: str,
     image_data_url: str | None = None,
     image_alt_text: str = "",
@@ -272,7 +274,7 @@ async def publish_post(
     """POST the content to LinkedIn. Returns the post URN from the response header."""
     content = _to_linkedin_safe_commentary(content)
 
-    account = await get_linkedin_account(session)
+    account = await get_linkedin_account(session, user_id)
     if account is None:
         raise LinkedInAuthError("LinkedIn account not connected. Authorize first.")
 
@@ -347,7 +349,7 @@ async def publish_post(
         if resp.status_code == 401:
             # Token can be revoked before expires_at; clear persisted account so UI
             # immediately reflects disconnected state and prompts re-connect.
-            await clear_linkedin_account(session)
+            await clear_linkedin_account(session, user_id)
             raise LinkedInAuthError("LinkedIn token rejected (401). Please reconnect.")
         if resp.status_code == 422 and "DUPLICATE_POST" in resp.text:
             raise ValueError(
@@ -368,9 +370,9 @@ async def publish_post(
     return post_urn
 
 
-async def delete_linkedin_post(session: AsyncSession, post_urn: str) -> None:
+async def delete_linkedin_post(session: AsyncSession, user_id: int, post_urn: str) -> None:
     """Delete a published post from LinkedIn. Raises LinkedInAuthError on auth failure."""
-    account = await get_linkedin_account(session)
+    account = await get_linkedin_account(session, user_id)
     if account is None:
         raise LinkedInAuthError("LinkedIn account not connected.")
 
@@ -390,7 +392,7 @@ async def delete_linkedin_post(session: AsyncSession, post_urn: str) -> None:
             },
         )
         if resp.status_code == 401:
-            await clear_linkedin_account(session)
+            await clear_linkedin_account(session, user_id)
             raise LinkedInAuthError("LinkedIn token rejected (401). Please reconnect.")
         if resp.status_code == 404:
             # Post not found on LinkedIn — it may have been deleted manually; treat as success

@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db_models import AuthSession, ChatMessage, Chunk, GeneratedPost, Insight, LinkedInAccount, LogEvent, Run, StyleProfile, StyleSample, Trend, User
 from .logging_setup import get_logger
-from .models import PersistedTrend, RunState, Source
+from .models import PersistedTrend, RunState, Source, UserInfo
 
 log = get_logger(__name__)
 _POST_KINDS = {"linkedin", "blog"}
@@ -85,6 +85,7 @@ async def create_run(
     run_date: date,
     topic: str,
     kind: str = "daily",
+    user_id: int | None = None,
 ) -> None:
     if kind == "daily":
         # Delete ALL same-date daily runs regardless of topic.  A topic rename in
@@ -99,6 +100,7 @@ async def create_run(
         )
     session.add(Run(
         run_id=run_id,
+        user_id=user_id,
         run_date=run_date,
         topic=topic,
         kind=kind,
@@ -109,11 +111,14 @@ async def create_run(
 
 
 async def find_adhoc_run(
-    session: AsyncSession, topic: str, run_date: date
+    session: AsyncSession, topic: str, run_date: date, user_id: int | None = None
 ) -> RunState | None:
+    conditions = [Run.kind == "adhoc", Run.topic == topic, Run.run_date == run_date, Run.state != "failed"]
+    if user_id is not None:
+        conditions.append(Run.user_id == user_id)
     row = (await session.execute(
         select(Run)
-        .where(Run.kind == "adhoc", Run.topic == topic, Run.run_date == run_date, Run.state != "failed")
+        .where(*conditions)
         .order_by(Run.started_at.desc())
         .limit(1)
     )).scalar_one_or_none()
@@ -192,11 +197,14 @@ async def list_runs(session: AsyncSession, limit: int = 20) -> list[RunState]:
     return [_orm_to_run(r) for r in rows]
 
 
-async def list_adhoc_runs(session: AsyncSession, limit: int = 50) -> list[RunState]:
+async def list_adhoc_runs(session: AsyncSession, user_id: int | None = None, limit: int = 50) -> list[RunState]:
     # Include in-progress runs so the history sidebar can show their progress.
+    conditions = [Run.kind == "adhoc", Run.state != "failed"]
+    if user_id is not None:
+        conditions.append(Run.user_id == user_id)
     rows = (await session.execute(
         select(Run)
-        .where(Run.kind == "adhoc", Run.state != "failed")
+        .where(*conditions)
         .order_by(Run.started_at.desc())
         .limit(limit)
     )).scalars().all()
@@ -218,6 +226,7 @@ async def run_exists_for_date(session: AsyncSession, run_date: date, topic: str)
 def _orm_to_run(row: Run) -> RunState:
     return RunState(
         run_id=row.run_id,
+        user_id=row.user_id,
         run_date=row.run_date,
         topic=row.topic,
         kind=row.kind,
@@ -390,6 +399,7 @@ def _orm_to_trend(row: Trend) -> PersistedTrend:
 
 async def append_chat_message(
     session: AsyncSession,
+    user_id: int,
     run_id: str,
     run_date: date,
     slug: str,
@@ -399,6 +409,7 @@ async def append_chat_message(
     used_web: bool = False,
 ) -> int:
     msg = ChatMessage(
+        user_id=user_id,
         run_id=run_id,
         run_date=run_date,
         slug=slug,
@@ -416,6 +427,7 @@ async def append_chat_message(
 
 async def list_chat_messages(
     session: AsyncSession,
+    user_id: int,
     run_date: date | None = None,
     run_id: str | None = None,
     slug: str | None = None,
@@ -423,10 +435,12 @@ async def list_chat_messages(
 ) -> list[dict]:
     if run_id:
         q = select(ChatMessage).where(
+            ChatMessage.user_id == user_id,
             ChatMessage.run_id == run_id, ChatMessage.slug == slug
         )
     else:
         q = select(ChatMessage).where(
+            ChatMessage.user_id == user_id,
             ChatMessage.run_date == run_date, ChatMessage.slug == slug
         )
     rows = (await session.execute(q.order_by(ChatMessage.created_at).limit(limit))).scalars().all()
@@ -447,6 +461,7 @@ async def list_chat_messages(
 
 async def create_insight(
     session: AsyncSession,
+    user_id: int,
     run_id: str,
     run_date: date,
     slug: str,
@@ -456,6 +471,7 @@ async def create_insight(
 ) -> int:
     now = datetime.now(timezone.utc)
     ins = Insight(
+        user_id=user_id,
         run_id=run_id,
         run_date=run_date,
         slug=slug,
@@ -473,25 +489,36 @@ async def create_insight(
 
 async def list_insights(
     session: AsyncSession,
+    user_id: int,
     run_date: date | None = None,
     run_id: str | None = None,
     slug: str | None = None,
 ) -> list[dict]:
     if run_id:
-        q = select(Insight).where(Insight.run_id == run_id, Insight.slug == slug)
+        q = select(Insight).where(
+            Insight.user_id == user_id,
+            Insight.run_id == run_id, Insight.slug == slug,
+        )
     else:
-        q = select(Insight).where(Insight.run_date == run_date, Insight.slug == slug)
+        q = select(Insight).where(
+            Insight.user_id == user_id,
+            Insight.run_date == run_date, Insight.slug == slug,
+        )
     rows = (await session.execute(q.order_by(Insight.created_at))).scalars().all()
     return [_orm_to_insight(r) for r in rows]
 
 
 async def list_all_insights(
     session: AsyncSession,
+    user_id: int,
     limit: int = 300,
 ) -> list[dict]:
     rows = (
         await session.execute(
-            select(Insight).order_by(Insight.created_at.desc()).limit(limit)
+            select(Insight)
+            .where(Insight.user_id == user_id)
+            .order_by(Insight.created_at.desc())
+            .limit(limit)
         )
     ).scalars().all()
     if not rows:
@@ -537,13 +564,14 @@ async def list_all_insights(
 
 async def list_insights_by_slug(
     session: AsyncSession,
+    user_id: int,
     slug: str,
     limit: int = 200,
 ) -> list[dict]:
-    """All insights for a slug across ALL runs — used for post generation context."""
+    """All insights for a slug across ALL runs for this user — used for post generation context."""
     q = (
         select(Insight)
-        .where(Insight.slug == slug)
+        .where(Insight.user_id == user_id, Insight.slug == slug)
         .order_by(Insight.created_at)
         .limit(limit)
     )
@@ -553,13 +581,14 @@ async def list_insights_by_slug(
 
 async def list_chat_messages_by_slug(
     session: AsyncSession,
+    user_id: int,
     slug: str,
     limit: int = 400,
 ) -> list[dict]:
-    """All chat messages for a slug across ALL runs — captures the full conversation history."""
+    """All chat messages for a slug across ALL runs for this user — captures the full conversation history."""
     q = (
         select(ChatMessage)
-        .where(ChatMessage.slug == slug)
+        .where(ChatMessage.user_id == user_id, ChatMessage.slug == slug)
         .order_by(ChatMessage.created_at)
         .limit(limit)
     )
@@ -579,17 +608,24 @@ async def list_chat_messages_by_slug(
 
 async def delete_chat_messages(
     session: AsyncSession,
+    user_id: int,
     run_date: date | None = None,
     run_id: str | None = None,
     slug: str | None = None,
 ) -> int:
     if run_id:
         result = await session.execute(
-            delete(ChatMessage).where(ChatMessage.run_id == run_id, ChatMessage.slug == slug)
+            delete(ChatMessage).where(
+                ChatMessage.user_id == user_id,
+                ChatMessage.run_id == run_id, ChatMessage.slug == slug,
+            )
         )
     else:
         result = await session.execute(
-            delete(ChatMessage).where(ChatMessage.run_date == run_date, ChatMessage.slug == slug)
+            delete(ChatMessage).where(
+                ChatMessage.user_id == user_id,
+                ChatMessage.run_date == run_date, ChatMessage.slug == slug,
+            )
         )
     await session.commit()
     return result.rowcount or 0
@@ -609,6 +645,7 @@ def _orm_to_insight(r: "Insight") -> dict:  # type: ignore[name-defined]
 
 async def add_style_sample(
     session: AsyncSession,
+    user_id: int,
     source: str,
     text: str,
     source_ref: int | None = None,
@@ -620,12 +657,13 @@ async def add_style_sample(
     cutoff = datetime.now(timezone.utc) - timedelta(days=90)
     existing = (await session.execute(
         select(StyleSample.id)
-        .where(StyleSample.text_hash == text_hash, StyleSample.created_at >= cutoff)
+        .where(StyleSample.user_id == user_id, StyleSample.text_hash == text_hash, StyleSample.created_at >= cutoff)
         .limit(1)
     )).scalar_one_or_none()
     if existing is not None:
         return None
     sample = StyleSample(
+        user_id=user_id,
         source=source,
         source_ref=source_ref,
         text=text,
@@ -638,22 +676,30 @@ async def add_style_sample(
     return sample.id
 
 
-async def count_style_samples(session: AsyncSession) -> int:
-    result = await session.execute(select(func.count()).select_from(StyleSample))
+async def count_style_samples(session: AsyncSession, user_id: int) -> int:
+    result = await session.execute(
+        select(func.count()).select_from(StyleSample).where(StyleSample.user_id == user_id)
+    )
     return result.scalar_one()
 
 
-async def get_recent_style_samples(session: AsyncSession, limit: int = 80) -> list[dict]:
+async def get_recent_style_samples(session: AsyncSession, user_id: int, limit: int = 80) -> list[dict]:
     rows = (await session.execute(
-        select(StyleSample).order_by(StyleSample.created_at.desc()).limit(limit)
+        select(StyleSample)
+        .where(StyleSample.user_id == user_id)
+        .order_by(StyleSample.created_at.desc())
+        .limit(limit)
     )).scalars().all()
     return [{"id": r.id, "source": r.source, "text": r.text, "created_at": r.created_at.isoformat()} for r in rows]
 
 
-async def get_style_samples_for_few_shot(session: AsyncSession, k: int = 5) -> list[str]:
-    """Return k samples: longest texts from recent entries for representative few-shot examples."""
+async def get_style_samples_for_few_shot(session: AsyncSession, user_id: int, k: int = 5) -> list[str]:
+    """Return k samples for the user: longest texts from recent entries for representative few-shot examples."""
     rows = (await session.execute(
-        select(StyleSample).order_by(StyleSample.created_at.desc()).limit(k * 4)
+        select(StyleSample)
+        .where(StyleSample.user_id == user_id)
+        .order_by(StyleSample.created_at.desc())
+        .limit(k * 4)
     )).scalars().all()
     if not rows:
         return []
@@ -663,8 +709,8 @@ async def get_style_samples_for_few_shot(session: AsyncSession, k: int = 5) -> l
 
 # ── Style profile ──────────────────────────────────────────────────────────────
 
-async def get_style_profile(session: AsyncSession) -> dict | None:
-    row = (await session.execute(select(StyleProfile).where(StyleProfile.id == 1))).scalar_one_or_none()
+async def get_style_profile(session: AsyncSession, user_id: int) -> dict | None:
+    row = (await session.execute(select(StyleProfile).where(StyleProfile.user_id == user_id))).scalar_one_or_none()
     if row is None:
         return None
     return {
@@ -676,18 +722,19 @@ async def get_style_profile(session: AsyncSession) -> dict | None:
 
 async def upsert_style_profile(
     session: AsyncSession,
+    user_id: int,
     profile_markdown: str,
     sample_count: int,
 ) -> None:
     now = datetime.now(timezone.utc)
-    existing = (await session.execute(select(StyleProfile).where(StyleProfile.id == 1))).scalar_one_or_none()
+    existing = (await session.execute(select(StyleProfile).where(StyleProfile.user_id == user_id))).scalar_one_or_none()
     if existing:
         existing.profile_markdown = profile_markdown
         existing.sample_count_at_last_refresh = sample_count
         existing.updated_at = now
     else:
         session.add(StyleProfile(
-            id=1,
+            user_id=user_id,
             profile_markdown=profile_markdown,
             sample_count_at_last_refresh=sample_count,
             updated_at=now,
@@ -699,6 +746,7 @@ async def upsert_style_profile(
 
 async def create_generated_post(
     session: AsyncSession,
+    user_id: int,
     kind: str,
     run_id: str,
     run_date: date,
@@ -716,6 +764,7 @@ async def create_generated_post(
 
     now = datetime.now(timezone.utc)
     post = GeneratedPost(
+        user_id=user_id,
         kind=kind,
         run_id=run_id,
         run_date=run_date,
@@ -742,24 +791,32 @@ async def get_generated_post(session: AsyncSession, post_id: int) -> dict | None
 
 async def list_generated_posts(
     session: AsyncSession,
+    user_id: int,
     run_date: date | None = None,
     run_id: str | None = None,
     slug: str | None = None,
 ) -> list[dict]:
     if run_id:
-        q = select(GeneratedPost).where(GeneratedPost.run_id == run_id, GeneratedPost.slug == slug)
+        q = select(GeneratedPost).where(
+            GeneratedPost.user_id == user_id,
+            GeneratedPost.run_id == run_id, GeneratedPost.slug == slug,
+        )
     else:
-        q = select(GeneratedPost).where(GeneratedPost.run_date == run_date, GeneratedPost.slug == slug)
+        q = select(GeneratedPost).where(
+            GeneratedPost.user_id == user_id,
+            GeneratedPost.run_date == run_date, GeneratedPost.slug == slug,
+        )
     rows = (await session.execute(q.order_by(GeneratedPost.created_at.desc()))).scalars().all()
     return [_orm_to_post(r) for r in rows]
 
 
 async def list_all_generated_posts(
     session: AsyncSession,
+    user_id: int,
     kind: str,
     limit: int = 100,
 ) -> list[dict]:
-    """All posts of one kind with their stored headline, newest-updated first.
+    """All posts of one kind for a user with their stored headline, newest-updated first.
 
     Reads headline directly from generated_posts — no join needed. Headlines are
     snapshotted at creation time so they survive trend deletion (>15-day retention).
@@ -773,7 +830,7 @@ async def list_all_generated_posts(
     post_rows = (
         await session.execute(
             select(GeneratedPost)
-            .where(GeneratedPost.kind == kind)
+            .where(GeneratedPost.user_id == user_id, GeneratedPost.kind == kind)
             .order_by(GeneratedPost.updated_at.desc())
             .limit(limit)
         )
@@ -785,6 +842,7 @@ async def list_all_generated_posts(
 async def update_generated_post_content(
     session: AsyncSession,
     post_id: int,
+    user_id: int,
     content_markdown: str,
     tags: list[str],
     status: str = "edited",
@@ -792,24 +850,24 @@ async def update_generated_post_content(
 ) -> None:
     await session.execute(
         update(GeneratedPost)
-        .where(GeneratedPost.id == post_id)
+        .where(GeneratedPost.id == post_id, GeneratedPost.user_id == user_id)
         .values(content_markdown=content_markdown, tags_json=tags, status=status, evaluation_json=evaluation, updated_at=datetime.now(timezone.utc))
     )
     await session.commit()
 
 
-async def mark_post_published(session: AsyncSession, post_id: int, linkedin_post_urn: str) -> None:
+async def mark_post_published(session: AsyncSession, post_id: int, user_id: int, linkedin_post_urn: str) -> None:
     await session.execute(
         update(GeneratedPost)
-        .where(GeneratedPost.id == post_id)
+        .where(GeneratedPost.id == post_id, GeneratedPost.user_id == user_id)
         .values(status="published", linkedin_post_urn=linkedin_post_urn, updated_at=datetime.now(timezone.utc))
     )
     await session.commit()
 
 
-async def delete_generated_post(session: AsyncSession, post_id: int) -> bool:
+async def delete_generated_post(session: AsyncSession, post_id: int, user_id: int) -> bool:
     result = await session.execute(
-        delete(GeneratedPost).where(GeneratedPost.id == post_id)
+        delete(GeneratedPost).where(GeneratedPost.id == post_id, GeneratedPost.user_id == user_id)
     )
     await session.commit()
     return (result.rowcount or 0) > 0
@@ -836,8 +894,8 @@ def _orm_to_post(row: GeneratedPost) -> dict:
 
 # ── LinkedIn account ────────────────────────────────────────────────────────────
 
-async def get_linkedin_account(session: AsyncSession) -> dict | None:
-    row = (await session.execute(select(LinkedInAccount).where(LinkedInAccount.id == 1))).scalar_one_or_none()
+async def get_linkedin_account(session: AsyncSession, user_id: int) -> dict | None:
+    row = (await session.execute(select(LinkedInAccount).where(LinkedInAccount.user_id == user_id))).scalar_one_or_none()
     if row is None:
         return None
     return {
@@ -851,13 +909,14 @@ async def get_linkedin_account(session: AsyncSession) -> dict | None:
 
 async def upsert_linkedin_account(
     session: AsyncSession,
+    user_id: int,
     access_token: str,
     refresh_token: str | None,
     expires_at: datetime,
     member_urn: str,
     member_name: str | None = None,
 ) -> None:
-    existing = (await session.execute(select(LinkedInAccount).where(LinkedInAccount.id == 1))).scalar_one_or_none()
+    existing = (await session.execute(select(LinkedInAccount).where(LinkedInAccount.user_id == user_id))).scalar_one_or_none()
     if existing:
         existing.access_token = access_token
         existing.refresh_token = refresh_token
@@ -867,7 +926,7 @@ async def upsert_linkedin_account(
             existing.member_name = member_name
     else:
         session.add(LinkedInAccount(
-            id=1,
+            user_id=user_id,
             access_token=access_token,
             refresh_token=refresh_token,
             expires_at=expires_at,
@@ -877,8 +936,8 @@ async def upsert_linkedin_account(
     await session.commit()
 
 
-async def clear_linkedin_account(session: AsyncSession) -> None:
-    await session.execute(delete(LinkedInAccount).where(LinkedInAccount.id == 1))
+async def clear_linkedin_account(session: AsyncSession, user_id: int) -> None:
+    await session.execute(delete(LinkedInAccount).where(LinkedInAccount.user_id == user_id))
     await session.commit()
 
 
@@ -917,15 +976,23 @@ async def get_user_by_username(session: AsyncSession, username: str) -> User | N
     return (await session.execute(select(User).where(User.username == username))).scalar_one_or_none()
 
 
+async def get_user_by_id(session: AsyncSession, user_id: int) -> User | None:
+    return (await session.execute(select(User).where(User.user_id == user_id))).scalar_one_or_none()
+
+
 _SESSION_TTL_DAYS = 30
 
 
 async def create_session(session: AsyncSession, username: str) -> str:
     from datetime import timedelta
+    user = await get_user_by_username(session, username)
+    if user is None:
+        raise ValueError(f"User '{username}' not found")
     token = secrets.token_urlsafe(32)
     now = datetime.now(timezone.utc)
     session.add(AuthSession(
         token=token,
+        user_id=user.user_id,
         username=username,
         created_at=now,
         last_seen_at=now,
@@ -971,7 +1038,7 @@ async def get_session_user(session: AsyncSession, token: str) -> User | None:
             .values(last_seen_at=now)
         )
         await session.commit()
-    return await get_user_by_username(session, row.username)
+    return await get_user_by_id(session, row.user_id)
 
 
 async def get_session_username(session: AsyncSession, token: str) -> str | None:
@@ -980,6 +1047,12 @@ async def get_session_username(session: AsyncSession, token: str) -> str | None:
     Avoids a join/query on users for every protected request. Returns username if
     token exists and is not expired, otherwise None.
     """
+    info = await get_session_user_info(session, token)
+    return info.username if info else None
+
+
+async def get_session_user_info(session: AsyncSession, token: str) -> UserInfo | None:
+    """Returns user_id + username from a valid session token, or None if expired/missing."""
     try:
         row = (
             await session.execute(
@@ -987,7 +1060,7 @@ async def get_session_username(session: AsyncSession, token: str) -> str | None:
             )
         ).scalar_one_or_none()
     except (SQLAlchemyError, ConnectionResetError) as exc:
-        log.warning("auth_session_username_retry", error=str(exc))
+        log.warning("auth_session_info_retry", error=str(exc))
         await session.rollback()
         row = (
             await session.execute(
@@ -1012,7 +1085,7 @@ async def get_session_username(session: AsyncSession, token: str) -> str | None:
             .values(last_seen_at=now)
         )
         await session.commit()
-    return row.username
+    return UserInfo(user_id=row.user_id, username=row.username)
 
 
 async def purge_expired_sessions(session: AsyncSession) -> int:

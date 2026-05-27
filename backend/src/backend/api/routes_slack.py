@@ -12,6 +12,7 @@ from ..db import get_session
 from ..integrations import linkedin as li
 from ..integrations.linkedin import LinkedInAuthError
 from ..integrations.slack import SlackError, fetch_channel_messages, post_message
+from .deps_auth import CurrentUser, require_user
 from .schemas import (
     SlackChatIn,
     SlackChatOut,
@@ -184,10 +185,10 @@ async def slack_post(body: SlackSendIn) -> SlackSendOut:
 
 
 @router.post("/slack/publish/linkedin", response_model=SlackPublishLinkedInOut)
-async def slack_publish_linkedin(body: SlackPublishLinkedInIn, session: AsyncSession = Depends(get_session)) -> SlackPublishLinkedInOut:
+async def slack_publish_linkedin(body: SlackPublishLinkedInIn, current_user: CurrentUser, session: AsyncSession = Depends(get_session)) -> SlackPublishLinkedInOut:
     publish_text, _ = _extract_post_text(body.content)
     try:
-        urn = await li.publish_post(session, publish_text)
+        urn = await li.publish_post(session, current_user.user_id, publish_text)
     except LinkedInAuthError as exc:
         raise HTTPException(status_code=401, detail=str(exc))
     except ValueError as exc:

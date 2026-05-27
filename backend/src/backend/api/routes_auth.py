@@ -26,7 +26,7 @@ async def login(body: LoginIn, response: Response, session: SessionDep) -> MeOut
         secure=settings.session_cookie_secure,
         max_age=30 * 24 * 3600,  # 30 days
     )
-    return MeOut(username=user.username)
+    return MeOut(user_id=user.user_id, username=user.username)
 
 
 @router.post("/logout")
@@ -42,4 +42,4 @@ async def logout(request: Request, response: Response, session: SessionDep) -> d
 
 @router.get("/me")
 async def me(current_user: CurrentUser) -> MeOut:
-    return MeOut(username=current_user)
+    return MeOut(user_id=current_user.user_id, username=current_user.username)

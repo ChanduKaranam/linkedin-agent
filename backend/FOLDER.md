@@ -22,7 +22,7 @@ Python backend server built with FastAPI. Orchestrates the full trend-intelligen
 | `.env.example` | Template for `.env` (includes LinkedIn OAuth vars as of 2026-04-29) |
 | `topics.yaml` | Topic definition: search queries, schedule time, model choices, rate limits |
 | `alembic.ini` | Alembic configuration pointing at `alembic/` |
-| `alembic/` | Database migrations (0001 = core tables, 0002 = style/posts/LinkedIn tables) |
+| `alembic/` | Database migrations (0001 = core tables, 0010 = user_id isolation) |
 
 ## topics.yaml Structure
 ```yaml
@@ -43,21 +43,23 @@ models:
 ```
 
 ## Last Session Changes
-**Session date:** 2026-05-02
+**Session date:** 2026-05-27
 
 **Changes made:**
-- `topics.yaml` — `dedup.cross_day_window` raised from `3` → `7`. With the fingerprint now headline-only and actually matching across days, a 7-day window meaningfully prevents the same story from resurfacing all week.
-- `scripts/reset_today.py` — new utility script (new `scripts/` folder). Connects directly to the DB via SQLAlchemy, deletes today's daily run (cascade-deletes its trends/chunks), then fires a fresh pipeline run. Useful when you want to force a complete re-scrape of today's content. Must be run with `PYTHONUTF8=1` env var on Windows to avoid cp1252 encoding errors in structlog.
+- `alembic/versions/0010_user_id_isolation.py` (new) — migration adding `user_id` SERIAL PK to `users` table (was `username` PK), and `user_id` FK columns on `auth_sessions`, `chat_messages`, `insights`, `style_samples`, `generated_posts`, and `runs`. Recreates `style_profile` and `linkedin_account` tables with `user_id` as PK. Uses raw SQL throughout (alembic DDL helpers had transaction-visibility issues).
+- `src/backend/api/routes_auth.py` — `login()` now returns `user_id` alongside `username` in `MeOut`.
+- `src/backend/api/routes_slack.py` — reordered `slack_publish_linkedin` params so `current_user` comes before `session` to satisfy Python's non-default-after-default rule.
 
-**Reason:** `cross_day_window=3` was too short once the fingerprint dedup started working; raised to 7 to cover a full week. The reset script was needed to manually delete stale/partial runs and immediately get fresh trends.
+**Reason:** Per-user data isolation. Previously all users shared the same posts, chats, insights, style profiles, and LinkedIn accounts. Now each user gets their own view; trends remain shared.
 
-**Outcome:** `topics.yaml` updated. `scripts/reset_today.py` works — run as: `cd backend && PYTHONUTF8=1 PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe scripts/reset_today.py`
+**Outcome:** Migration 0010 applied successfully at revision 0010 (head). Users (ravi, chandu, kiran, admin) have sequential user_ids 1-4. All protected endpoints (login, /me, /health, /trends/today, /schedule) tested and returning 200. Session lifecycle (login → me → logout → me 401) working.
 
-**Watch out for:** `reset_today.py` deletes ALL daily runs for today before starting a new one. It also runs the pipeline synchronously (blocking), which will take ~30 minutes due to RAG indexing. Do not use during production hours. The script uses the venv at `backend/.venv/` — use that Python, not system Python.
+**Watch out for:** Server takes ~60s to start due to slow ADK library import. Neon DB connection rate-limited under frequent restarts.
 
 ## Change Log
 | Date | File(s) Changed | Summary |
 |---|---|---|
+| 2026-05-27 | `alembic/versions/0010_user_id_isolation.py` (new), `routes_auth.py`, `routes_slack.py` | Added user_id PK/FK migration; fixed login MeOut; fixed slack route param order |
 | 2026-05-02 | `topics.yaml`, `scripts/reset_today.py` (new) | Raised cross_day_window to 7; added reset script to delete today's run and re-trigger pipeline |
 | 2026-04-29 | `.env.example`, `alembic/versions/0002_style_posts_linkedin.py` | Added LinkedIn OAuth env vars; new DB migration for style corpus + generated posts + LinkedIn account |
 | 2026-04-29 | `FOLDER.md` | Initial creation — bootstrapping documentation system |

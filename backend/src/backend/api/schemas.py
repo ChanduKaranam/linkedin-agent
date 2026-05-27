@@ -282,4 +282,5 @@ class LoginIn(BaseModel):
 
 
 class MeOut(BaseModel):
+    user_id: int
     username: str

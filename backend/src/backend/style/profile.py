@@ -19,25 +19,25 @@ _REFRESH_GROWTH_RATIO = 1.05  # refresh when sample count grows 5% (keep profile
 _MIN_SAMPLES_TO_PROFILE = 3   # don't profile until we have at least 3 samples
 
 
-async def get_profile_text(session: AsyncSession) -> str:
-    """Return the current distilled style profile text, or empty string."""
-    profile = await get_style_profile(session)
+async def get_profile_text(session: AsyncSession, user_id: int) -> str:
+    """Return the current distilled style profile text for a user, or empty string."""
+    profile = await get_style_profile(session, user_id)
     return profile["profile_markdown"] if profile else ""
 
 
-async def refresh_profile_if_stale(session: AsyncSession, force: bool = False) -> bool:
+async def refresh_profile_if_stale(session: AsyncSession, user_id: int, force: bool = False) -> bool:
     """Check staleness; if stale (or forced), re-distil the profile. Returns True if refreshed."""
-    total = await count_style_samples(session)
+    total = await count_style_samples(session, user_id)
     if total < _MIN_SAMPLES_TO_PROFILE and not force:
         return False
 
-    profile = await get_style_profile(session)
+    profile = await get_style_profile(session, user_id)
     last_count = profile["sample_count_at_last_refresh"] if profile else 0
 
     if not force and total < last_count * _REFRESH_GROWTH_RATIO:
         return False
 
-    samples = await get_recent_style_samples(session, limit=80)
+    samples = await get_recent_style_samples(session, user_id, limit=80)
     sample_texts = [s["text"] for s in samples]
 
     numbered = "\n\n".join(f"[{i+1}] {t}" for i, t in enumerate(sample_texts))
@@ -53,7 +53,7 @@ async def refresh_profile_if_stale(session: AsyncSession, force: bool = False) -
             ],
         )
         profile_md = (response.choices[0].message.content or "").strip()
-        await upsert_style_profile(session, profile_md, total)
+        await upsert_style_profile(session, user_id, profile_md, total)
         log.info("style_profile_refreshed", sample_count=total)
         return True
     except Exception as exc:

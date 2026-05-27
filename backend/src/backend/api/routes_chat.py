@@ -27,6 +27,7 @@ from ..storage import (
 )
 from ..style.collector import record_sample
 from ..style.profile import refresh_profile_if_stale
+from .deps_auth import CurrentUser
 from .schemas import (
     ChatMessageOut,
     ChatResetOut,
@@ -98,28 +99,29 @@ def _row_to_msg_out(row: dict) -> ChatMessageOut:
 # ── Daily trend chat ────────────────────────────────────────────────────────────
 
 @router.get("/chat/{date}/{slug}/messages", response_model=list[ChatMessageOut])
-async def get_daily_chat(date: str, slug: str, session: SessionDep) -> list[ChatMessageOut]:
+async def get_daily_chat(date: str, slug: str, session: SessionDep, current_user: CurrentUser) -> list[ChatMessageOut]:
     try:
         run_date = _date_parse(date)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
-    rows = await list_chat_messages(session, run_date=run_date, slug=slug)
+    rows = await list_chat_messages(session, current_user.user_id, run_date=run_date, slug=slug)
     return [_row_to_msg_out(r) for r in rows]
 
 
 @router.delete("/chat/{date}/{slug}/messages", response_model=ChatResetOut)
-async def delete_daily_chat(date: str, slug: str, session: SessionDep) -> ChatResetOut:
+async def delete_daily_chat(date: str, slug: str, session: SessionDep, current_user: CurrentUser) -> ChatResetOut:
     try:
         run_date = _date_parse(date)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
-    deleted = await delete_chat_messages(session, run_date=run_date, slug=slug)
+    deleted = await delete_chat_messages(session, current_user.user_id, run_date=run_date, slug=slug)
     return ChatResetOut(deleted=deleted)
 
 
 @router.post("/chat/{date}/{slug}/messages", response_model=ChatPostOut)
 async def post_daily_chat(
-    date: str, slug: str, body: ChatPostIn, request: Request, session: SessionDep, bg: BackgroundTasks
+    date: str, slug: str, body: ChatPostIn, request: Request, session: SessionDep, bg: BackgroundTasks,
+    current_user: CurrentUser,
 ) -> ChatPostOut:
     _rate_limit_check(_client_ip(request))
     cfg = get_topic_config()
@@ -135,7 +137,7 @@ async def post_daily_chat(
         raise HTTPException(status_code=404, detail="Trend not found.")
 
     user_content = _sanitize_message(body.content)
-    history = await list_chat_messages(session, run_date=run_date, slug=slug, limit=cfg.chat.max_history_turns * 2)
+    history = await list_chat_messages(session, current_user.user_id, run_date=run_date, slug=slug, limit=cfg.chat.max_history_turns * 2)
 
     result = await chat_answer(
         trend=trend,
@@ -147,16 +149,16 @@ async def post_daily_chat(
         session=session,
     )
 
-    user_id = await append_chat_message(session, trend.run_id, run_date, slug, "user", user_content)
+    user_id = await append_chat_message(session, current_user.user_id, trend.run_id, run_date, slug, "user", user_content)
     asst_id = await append_chat_message(
-        session, trend.run_id, run_date, slug, "assistant",
+        session, current_user.user_id, trend.run_id, run_date, slug, "assistant",
         result["reply"], result["citations"], result["used_web"],
     )
 
-    await record_sample(session, "chat", user_content, source_ref=user_id)
-    bg.add_task(_bg_refresh_profile_task)
+    await record_sample(session, current_user.user_id, "chat", user_content, source_ref=user_id)
+    bg.add_task(_bg_refresh_profile_task, current_user.user_id)
 
-    all_rows = await list_chat_messages(session, run_date=run_date, slug=slug, limit=200)
+    all_rows = await list_chat_messages(session, current_user.user_id, run_date=run_date, slug=slug, limit=200)
     user_row = next(r for r in all_rows if r["id"] == user_id)
     asst_row = next(r for r in all_rows if r["id"] == asst_id)
     return ChatPostOut(user_message=_row_to_msg_out(user_row), assistant_message=_row_to_msg_out(asst_row))
@@ -166,7 +168,8 @@ async def post_daily_chat(
 
 @router.post("/chat/{date}/{slug}/messages/stream")
 async def post_daily_chat_stream(
-    date: str, slug: str, body: ChatPostIn, request: Request, session: SessionDep
+    date: str, slug: str, body: ChatPostIn, request: Request, session: SessionDep,
+    current_user: CurrentUser,
 ) -> StreamingResponse:
     _rate_limit_check(_client_ip(request))
     cfg = get_topic_config()
@@ -182,13 +185,13 @@ async def post_daily_chat_stream(
         raise HTTPException(status_code=404, detail="Trend not found.")
 
     user_content = _sanitize_message(body.content)
-    history = await list_chat_messages(session, run_date=run_date, slug=slug, limit=cfg.chat.max_history_turns * 2)
+    history = await list_chat_messages(session, current_user.user_id, run_date=run_date, slug=slug, limit=cfg.chat.max_history_turns * 2)
 
     # All DB work happens HERE (before streaming) so the session stays clean
     system_prompt = await build_system_prompt(trend, user_content, session)
-    user_id = await append_chat_message(session, trend.run_id, run_date, slug, "user", user_content)
-    await record_sample(session, "chat", user_content, source_ref=user_id)
-    all_rows = await list_chat_messages(session, run_date=run_date, slug=slug, limit=200)
+    user_id = await append_chat_message(session, current_user.user_id, trend.run_id, run_date, slug, "user", user_content)
+    await record_sample(session, current_user.user_id, "chat", user_content, source_ref=user_id)
+    all_rows = await list_chat_messages(session, current_user.user_id, run_date=run_date, slug=slug, limit=200)
     user_row = next(r for r in all_rows if r["id"] == user_id)
     user_row_dict = _row_to_msg_out(user_row).model_dump()
 
@@ -230,9 +233,9 @@ async def post_daily_chat_stream(
         try:
             async with _get_factory()() as new_session:
                 asst_id = await append_chat_message(
-                    new_session, run_id, run_date_val, slug, "assistant", full_reply, citations, used_web
+                    new_session, current_user.user_id, run_id, run_date_val, slug, "assistant", full_reply, citations, used_web
                 )
-                saved_rows = await list_chat_messages(new_session, run_date=run_date_val, slug=slug, limit=200)
+                saved_rows = await list_chat_messages(new_session, current_user.user_id, run_date=run_date_val, slug=slug, limit=200)
                 asst_row = next((r for r in saved_rows if r["id"] == asst_id), None)
                 if asst_row:
                     yield f"data: {json.dumps({'type': 'assistant_message', 'message': _row_to_msg_out(asst_row).model_dump()})}\n\n"
@@ -240,7 +243,7 @@ async def post_daily_chat_stream(
             log.error("daily_chat_stream_save_failed", error=str(exc))
 
         import asyncio
-        asyncio.create_task(_bg_refresh_profile_task())
+        asyncio.create_task(_bg_refresh_profile_task(current_user.user_id))
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream",
@@ -250,20 +253,21 @@ async def post_daily_chat_stream(
 # ── Adhoc/search run chat ───────────────────────────────────────────────────────
 
 @router.get("/chat/runs/{run_id}/{slug}/messages", response_model=list[ChatMessageOut])
-async def get_run_chat(run_id: str, slug: str, session: SessionDep) -> list[ChatMessageOut]:
-    rows = await list_chat_messages(session, run_id=run_id, slug=slug)
+async def get_run_chat(run_id: str, slug: str, session: SessionDep, current_user: CurrentUser) -> list[ChatMessageOut]:
+    rows = await list_chat_messages(session, current_user.user_id, run_id=run_id, slug=slug)
     return [_row_to_msg_out(r) for r in rows]
 
 
 @router.delete("/chat/runs/{run_id}/{slug}/messages", response_model=ChatResetOut)
-async def delete_run_chat(run_id: str, slug: str, session: SessionDep) -> ChatResetOut:
-    deleted = await delete_chat_messages(session, run_id=run_id, slug=slug)
+async def delete_run_chat(run_id: str, slug: str, session: SessionDep, current_user: CurrentUser) -> ChatResetOut:
+    deleted = await delete_chat_messages(session, current_user.user_id, run_id=run_id, slug=slug)
     return ChatResetOut(deleted=deleted)
 
 
 @router.post("/chat/runs/{run_id}/{slug}/messages", response_model=ChatPostOut)
 async def post_run_chat(
-    run_id: str, slug: str, body: ChatPostIn, request: Request, session: SessionDep, bg: BackgroundTasks
+    run_id: str, slug: str, body: ChatPostIn, request: Request, session: SessionDep, bg: BackgroundTasks,
+    current_user: CurrentUser,
 ) -> ChatPostOut:
     _rate_limit_check(_client_ip(request))
     cfg = get_topic_config()
@@ -275,7 +279,7 @@ async def post_run_chat(
         raise HTTPException(status_code=404, detail="Trend not found for this run.")
 
     user_content = _sanitize_message(body.content)
-    history = await list_chat_messages(session, run_id=run_id, slug=slug, limit=cfg.chat.max_history_turns * 2)
+    history = await list_chat_messages(session, current_user.user_id, run_id=run_id, slug=slug, limit=cfg.chat.max_history_turns * 2)
 
     result = await chat_answer(
         trend=trend,
@@ -287,16 +291,16 @@ async def post_run_chat(
         session=session,
     )
 
-    user_id = await append_chat_message(session, run_id, trend.run_date, slug, "user", user_content)
+    user_id = await append_chat_message(session, current_user.user_id, run_id, trend.run_date, slug, "user", user_content)
     asst_id = await append_chat_message(
-        session, run_id, trend.run_date, slug, "assistant",
+        session, current_user.user_id, run_id, trend.run_date, slug, "assistant",
         result["reply"], result["citations"], result["used_web"],
     )
 
-    await record_sample(session, "chat", user_content, source_ref=user_id)
-    bg.add_task(_bg_refresh_profile_task)
+    await record_sample(session, current_user.user_id, "chat", user_content, source_ref=user_id)
+    bg.add_task(_bg_refresh_profile_task, current_user.user_id)
 
-    all_rows = await list_chat_messages(session, run_id=run_id, slug=slug, limit=200)
+    all_rows = await list_chat_messages(session, current_user.user_id, run_id=run_id, slug=slug, limit=200)
     user_row = next(r for r in all_rows if r["id"] == user_id)
     asst_row = next(r for r in all_rows if r["id"] == asst_id)
     return ChatPostOut(user_message=_row_to_msg_out(user_row), assistant_message=_row_to_msg_out(asst_row))
@@ -306,7 +310,8 @@ async def post_run_chat(
 
 @router.post("/chat/runs/{run_id}/{slug}/messages/stream")
 async def post_run_chat_stream(
-    run_id: str, slug: str, body: ChatPostIn, request: Request, session: SessionDep
+    run_id: str, slug: str, body: ChatPostIn, request: Request, session: SessionDep,
+    current_user: CurrentUser,
 ) -> StreamingResponse:
     _rate_limit_check(_client_ip(request))
     cfg = get_topic_config()
@@ -318,12 +323,12 @@ async def post_run_chat_stream(
         raise HTTPException(status_code=404, detail="Trend not found for this run.")
 
     user_content = _sanitize_message(body.content)
-    history = await list_chat_messages(session, run_id=run_id, slug=slug, limit=cfg.chat.max_history_turns * 2)
+    history = await list_chat_messages(session, current_user.user_id, run_id=run_id, slug=slug, limit=cfg.chat.max_history_turns * 2)
 
     system_prompt = await build_system_prompt(trend, user_content, session)
-    user_id = await append_chat_message(session, run_id, trend.run_date, slug, "user", user_content)
-    await record_sample(session, "chat", user_content, source_ref=user_id)
-    all_rows = await list_chat_messages(session, run_id=run_id, slug=slug, limit=200)
+    user_id = await append_chat_message(session, current_user.user_id, run_id, trend.run_date, slug, "user", user_content)
+    await record_sample(session, current_user.user_id, "chat", user_content, source_ref=user_id)
+    all_rows = await list_chat_messages(session, current_user.user_id, run_id=run_id, slug=slug, limit=200)
     user_row = next(r for r in all_rows if r["id"] == user_id)
     user_row_dict = _row_to_msg_out(user_row).model_dump()
     run_date_val = trend.run_date
@@ -364,9 +369,9 @@ async def post_run_chat_stream(
         try:
             async with _get_factory()() as new_session:
                 asst_id = await append_chat_message(
-                    new_session, run_id, run_date_val, slug, "assistant", full_reply, citations, used_web
+                    new_session, current_user.user_id, run_id, run_date_val, slug, "assistant", full_reply, citations, used_web
                 )
-                saved_rows = await list_chat_messages(new_session, run_id=run_id, slug=slug, limit=200)
+                saved_rows = await list_chat_messages(new_session, current_user.user_id, run_id=run_id, slug=slug, limit=200)
                 asst_row = next((r for r in saved_rows if r["id"] == asst_id), None)
                 if asst_row:
                     yield f"data: {json.dumps({'type': 'assistant_message', 'message': _row_to_msg_out(asst_row).model_dump()})}\n\n"
@@ -374,7 +379,7 @@ async def post_run_chat_stream(
             log.error("run_chat_stream_save_failed", error=str(exc))
 
         import asyncio
-        asyncio.create_task(_bg_refresh_profile_task())
+        asyncio.create_task(_bg_refresh_profile_task(current_user.user_id))
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream",
@@ -384,22 +389,22 @@ async def post_run_chat_stream(
 # ── Insights ────────────────────────────────────────────────────────────────────
 
 @router.get("/insights/all", response_model=list[InsightListItemOut])
-async def get_all_insights(session: SessionDep, limit: int = 300) -> list[InsightListItemOut]:
-    rows = await list_all_insights(session, limit=min(limit, 1000))
+async def get_all_insights(session: SessionDep, current_user: CurrentUser, limit: int = 300) -> list[InsightListItemOut]:
+    rows = await list_all_insights(session, current_user.user_id, limit=min(limit, 1000))
     return [InsightListItemOut(**r) for r in rows]
 
 @router.get("/insights/{date}/{slug}", response_model=list[InsightOut])
-async def get_daily_insights(date: str, slug: str, session: SessionDep) -> list[InsightOut]:
+async def get_daily_insights(date: str, slug: str, session: SessionDep, current_user: CurrentUser) -> list[InsightOut]:
     try:
         run_date = _date_parse(date)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
-    rows = await list_insights(session, run_date=run_date, slug=slug)
+    rows = await list_insights(session, current_user.user_id, run_date=run_date, slug=slug)
     return [InsightOut(**r) for r in rows]
 
 
 @router.post("/insights/{date}/{slug}", response_model=InsightOut, status_code=201)
-async def post_daily_insight(date: str, slug: str, body: InsightIn, session: SessionDep) -> InsightOut:
+async def post_daily_insight(date: str, slug: str, body: InsightIn, session: SessionDep, current_user: CurrentUser) -> InsightOut:
     try:
         run_date = _date_parse(date)
     except ValueError:
@@ -407,28 +412,28 @@ async def post_daily_insight(date: str, slug: str, body: InsightIn, session: Ses
     trend = await get_trend_by_slug(session, run_date, slug)
     if trend is None:
         raise HTTPException(status_code=404, detail="Trend not found.")
-    insight_id = await create_insight(session, trend.run_id, run_date, slug, body.user_perspective, body.summary, body.tags)
-    await record_sample(session, "insight", body.user_perspective, source_ref=insight_id)
-    rows = await list_insights(session, run_date=run_date, slug=slug)
+    insight_id = await create_insight(session, current_user.user_id, trend.run_id, run_date, slug, body.user_perspective, body.summary, body.tags)
+    await record_sample(session, current_user.user_id, "insight", body.user_perspective, source_ref=insight_id)
+    rows = await list_insights(session, current_user.user_id, run_date=run_date, slug=slug)
     row = next(r for r in rows if r["id"] == insight_id)
     return InsightOut(**row)
 
 
 @router.get("/insights/runs/{run_id}/{slug}", response_model=list[InsightOut])
-async def get_run_insights(run_id: str, slug: str, session: SessionDep) -> list[InsightOut]:
-    rows = await list_insights(session, run_id=run_id, slug=slug)
+async def get_run_insights(run_id: str, slug: str, session: SessionDep, current_user: CurrentUser) -> list[InsightOut]:
+    rows = await list_insights(session, current_user.user_id, run_id=run_id, slug=slug)
     return [InsightOut(**r) for r in rows]
 
 
 @router.post("/insights/runs/{run_id}/{slug}", response_model=InsightOut, status_code=201)
-async def post_run_insight(run_id: str, slug: str, body: InsightIn, session: SessionDep) -> InsightOut:
+async def post_run_insight(run_id: str, slug: str, body: InsightIn, session: SessionDep, current_user: CurrentUser) -> InsightOut:
     trends = await get_trends_for_run(session, run_id)
     trend = next((t for t in trends if t.slug == slug), None)
     if trend is None:
         raise HTTPException(status_code=404, detail="Trend not found for this run.")
-    insight_id = await create_insight(session, run_id, trend.run_date, slug, body.user_perspective, body.summary, body.tags)
-    await record_sample(session, "insight", body.user_perspective, source_ref=insight_id)
-    rows = await list_insights(session, run_id=run_id, slug=slug)
+    insight_id = await create_insight(session, current_user.user_id, run_id, trend.run_date, slug, body.user_perspective, body.summary, body.tags)
+    await record_sample(session, current_user.user_id, "insight", body.user_perspective, source_ref=insight_id)
+    rows = await list_insights(session, current_user.user_id, run_id=run_id, slug=slug)
     row = next(r for r in rows if r["id"] == insight_id)
     return InsightOut(**row)
 
@@ -437,10 +442,10 @@ def _date_parse(s: str) -> date:
     return date.fromisoformat(s)
 
 
-async def _bg_refresh_profile_task() -> None:
+async def _bg_refresh_profile_task(user_id: int) -> None:
     from ..db import _get_factory
     try:
         async with _get_factory()() as session:
-            await refresh_profile_if_stale(session)
+            await refresh_profile_if_stale(session, user_id)
     except Exception as exc:
         log.warning("bg_style_profile_refresh_failed", error=str(exc))

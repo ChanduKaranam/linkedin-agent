@@ -1,7 +1,8 @@
-"""Seed a user into the users table.
+"""Seed users into the users table.
 
 Usage:
-    python scripts/seed_user.py <username>
+    python scripts/seed_user.py <username>         # prompts for password
+    python scripts/seed_user.py <user>:<pass> [...] # non-interactive
 """
 from __future__ import annotations
 
@@ -39,12 +40,27 @@ async def seed(username: str, password: str) -> None:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("Usage: python scripts/seed_user.py <username>")
+    if len(sys.argv) < 2:
+        print("Usage: python scripts/seed_user.py <username> [<username> ...]")
+        print("       python scripts/seed_user.py <username>:<password> [...]")
         sys.exit(1)
-    username = sys.argv[1]
-    password = getpass.getpass(f"Password for '{username}': ")
-    if not password:
-        print("Password cannot be empty.")
-        sys.exit(1)
-    asyncio.run(seed(username, password))
+
+    users: list[tuple[str, str]] = []
+
+    for arg in sys.argv[1:]:
+        if ":" in arg:
+            username, password = arg.split(":", 1)
+            users.append((username, password))
+        else:
+            username = arg
+            password = getpass.getpass(f"Password for '{username}': ")
+            if not password:
+                print("Password cannot be empty.")
+                sys.exit(1)
+            users.append((username, password))
+
+    async def seed_all():
+        for username, password in users:
+            await seed(username, password)
+
+    asyncio.run(seed_all())

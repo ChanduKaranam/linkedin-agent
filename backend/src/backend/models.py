@@ -63,8 +63,14 @@ class PersistedTrend(BaseModel):
     created_at: datetime | None = None
 
 
+class UserInfo(BaseModel):
+    user_id: int
+    username: str
+
+
 class RunState(BaseModel):
     run_id: str
+    user_id: int | None = None
     run_date: date
     topic: str
     kind: str = "daily"

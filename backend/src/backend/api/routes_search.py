@@ -15,6 +15,7 @@ from ..db import _get_factory, get_session
 from ..logging_setup import get_logger
 from ..pipeline import build_adhoc_topic_config, run_search_synthesis_safe
 from ..storage import create_run, find_adhoc_run, get_run, get_trend_by_run_and_slug, get_trend_summaries_for_run, list_adhoc_runs
+from .deps_auth import CurrentUser
 from .schemas import SearchHistoryItem, SearchRequest, SearchResponse, SearchRunStatus, TrendDetailOut, TrendListItem
 
 router = APIRouter()
@@ -75,7 +76,8 @@ async def _run_search_background(run_id: str, run_date: date, topic_cfg, cache_d
 
 @router.post("/search", response_model=SearchResponse, status_code=202)
 async def search(
-    body: SearchRequest, request: Request, background_tasks: BackgroundTasks, session: SessionDep
+    body: SearchRequest, request: Request, background_tasks: BackgroundTasks, session: SessionDep,
+    current_user: CurrentUser,
 ) -> SearchResponse:
     _rate_limit_check(_client_ip(request))
     topic = _validate_topic(body.topic)
@@ -83,7 +85,7 @@ async def search(
     settings = get_settings()
 
     if not body.force:
-        cached = await find_adhoc_run(session, topic, today)
+        cached = await find_adhoc_run(session, topic, today, user_id=current_user.user_id)
         if cached:
             is_done = cached.state in ("completed", "completed_with_warnings")
             log.info("search_cache_hit", topic=topic, run_id=cached.run_id, state=cached.state)
@@ -94,7 +96,7 @@ async def search(
     base_cfg = get_topic_config()
     adhoc_cfg = build_adhoc_topic_config(topic, base_cfg)
 
-    await create_run(session, run_id, today, stored_topic, kind="adhoc")
+    await create_run(session, run_id, today, stored_topic, kind="adhoc", user_id=current_user.user_id)
     if settings.run_pipeline_in_web_process:
         background_tasks.add_task(_run_search_background, run_id, today, adhoc_cfg, settings.cache_dir)
         log.info("search_run_started", topic=topic, run_id=run_id, force=body.force)
@@ -104,9 +106,9 @@ async def search(
 
 
 @router.get("/search/history", response_model=list[SearchHistoryItem])
-async def search_history(session: SessionDep, limit: int = Query(default=50, ge=1, le=100)) -> list[SearchHistoryItem]:
+async def search_history(session: SessionDep, current_user: CurrentUser, limit: int = Query(default=50, ge=1, le=100)) -> list[SearchHistoryItem]:
     try:
-        runs = await list_adhoc_runs(session, limit=limit)
+        runs = await list_adhoc_runs(session, user_id=current_user.user_id, limit=limit)
     except Exception as exc:
         # Fail soft to avoid breaking the UI loop during transient DB pressure.
         log.warning("search_history_query_failed", limit=limit, error=str(exc))
